@@ -1,0 +1,22 @@
+language: elixir
+elixir:
+  - 1.5
+  - 1.6
+otp_release:
+  - 19.0
+  - 20.1
+branches:
+  only:
+    - master
+install:
+  - epmd -daemon
+  - mix local.hex --force
+  - mix local.rebar --force
+  - mix deps.get
+script:
+  - mix test_all
+env:
+  - MIX_ENV=test
+before_script:
+  - make test-prepare
+  - mix compile

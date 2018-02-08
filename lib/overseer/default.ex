@@ -14,11 +14,7 @@ defmodule Overseer.Default do
     {:ok, state}
   end
 
-  def handle_telemetry({:progress, _data}, _node, state) do
-    {:ok, state}
-  end
-
-  def handle_telemetry(_data, _node, state) do
+  def handle_telemetry(_data, state) do
     {:ok, state}
   end
 

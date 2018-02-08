@@ -4,7 +4,13 @@ SUBDIR=$(FIXTURE_DIR)/modules $(FIXTURE_DIR)/apps
 
 test-prepare: $(SUBDIR)
 
+modules:
+	make -C $(FIXTURE_DIR)/modules
+
+apps:
+	make -C $(FIXTURE_DIR)/apps
+
 $(SUBDIR):
 	make -C $@
 
-.PHONY: test-prepare $(SUBDIR)
+.PHONY: test-prepare $(SUBDIR) modules apps

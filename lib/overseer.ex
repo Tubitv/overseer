@@ -59,11 +59,11 @@ defmodule Overseer do
 
         end
 
-        def handle_telemetry({:progress, data}, node, state) do
+        def handle_telemetry(telemetry, state) do
 
         end
 
-        def handle_telemetry(data, node, state) do
+        def handle_telemetry(telemetry, state) do
 
         end
 
@@ -108,6 +108,10 @@ defmodule Overseer do
       end
   """
 
+  require Logger
+  alias Overseer.{Labor, Pair, State, Timer}
+  alias GenExecutor.{Telemetry}
+
   # @doc """
   # Invoked when the adapter is called to start the node
   #
@@ -128,7 +132,7 @@ defmodule Overseer do
   @doc """
   Invoked when a remote node sends telemetry report
   """
-  @callback handle_telemetry(data :: term, from :: node, state :: term) :: {:noreply, term}
+  @callback handle_telemetry(telemetry :: Telemetry, state :: term) :: {:noreply, term}
 
   @doc """
   Invoked when a remote node is terminated
@@ -139,10 +143,6 @@ defmodule Overseer do
   Invoked when a remote node sends other events
   """
   @callback handle_event(data :: term, from :: node, state :: term) :: {:noreply, term}
-
-  require Logger
-  alias Overseer.{Labor, State}
-  alias GenExecutor.Ocb
 
   @doc false
   defmacro __using__(opts) do
@@ -217,7 +217,7 @@ defmodule Overseer do
   def handle_call(:"$start_child", _from, %{spec: spec, labors: labors} = data) do
     with true <- count_labors(labors) < spec.max_nodes,
          {:ok, labor} <- spec.adapter.spawn(spec) do
-      labor = setup_conn_timer(labor, spec.conn_timeout)
+      labor = Timer.setup(labor, spec.conn_timeout, :conn)
       {:reply, labor, %{data | labors: Map.put(labors, labor.name, labor)}}
     else
       err ->
@@ -237,6 +237,13 @@ defmodule Overseer do
 
   def handle_call(:"$count_children", _from, %{labors: labors} = data) do
     {:reply, count_labors(labors), data}
+  end
+
+  def handle_call({:"$pair", name, pid}, _from, %{labors: labors} = data) do
+    case Pair.finish(labors, name, pid) do
+      {:ok, new_labors} -> {:reply, :ok, %{data | labors: new_labors}}
+      error -> {:reply, error, data}
+    end
   end
 
   def handle_call(:"$debug", _from, data) do
@@ -270,7 +277,7 @@ defmodule Overseer do
 
       new_labor =
         labor
-        |> cancel_conn_timer
+        |> Timer.cancel(:conn)
         |> Labor.connected()
         |> trigger_loader
 
@@ -283,10 +290,9 @@ defmodule Overseer do
     end
   end
 
-  def handle_info(
-        {:nodedown, node_name, _},
-        %{mod: mod, labors: labors, spec: spec, state: state} = data
-      ) do
+  def handle_info({:nodedown, node_name, _}, data) do
+    %{mod: mod, labors: labors, spec: spec, state: state} = data
+
     with {:ok, labor} <- Map.fetch(labors, node_name),
          {:ok, new_state} <- mod_handle_down(mod, labor, state) do
       Logger.info("#{node_name} is down. Update its #{inspect(labor)}")
@@ -299,7 +305,7 @@ defmodule Overseer do
           _ ->
             new_labor =
               labor
-              |> setup_conn_timer(spec.conn_timeout)
+              |> Timer.setup(spec.conn_timeout, :conn)
               |> Labor.disconnected()
 
             Map.put(labors, node_name, new_labor)
@@ -316,8 +322,25 @@ defmodule Overseer do
     end
   end
 
-  def handle_info({:"$timeout", node_name}, %{labors: labors} = data) do
-    Logger.info("Timeout triggered: #{inspect(node_name)}")
+  def handle_info({:EXIT, pid, reason}, %{spec: spec, labors: labors} = data) do
+    Logger.warn(
+      "Process #{inspect(pid)} down. Reason: #{inspect(reason)}. Trying to bring it up again."
+    )
+
+    node_name = node(pid)
+
+    with {:ok, labor} <- Map.fetch(labors, node_name),
+         {:ok, new_labor} <- Pair.initiate(spec, labor) do
+      {:noreply, %{data | labors: Map.put(labors, node_name, new_labor)}}
+    else
+      _err ->
+        Logger.warn("Cannot bring up the dead process for #{node_name}")
+        {:noreply, data}
+    end
+  end
+
+  def handle_info({:"$conn_timeout", node_name}, %{labors: labors} = data) do
+    Logger.info("Conn timer triggered: #{inspect(node_name)}")
 
     with {:ok, labor} <- Map.fetch(labors, node_name) do
       case Labor.is_disconnected(labor) do
@@ -329,10 +352,48 @@ defmodule Overseer do
     end
   end
 
+  def handle_info({:"$pair_timeout", node_name}, %{spec: spec, labors: labors} = data) do
+    Logger.info("Pairing timer triggered: #{inspect(node_name)}")
+
+    with {:ok, labor} <- Map.fetch(labors, node_name),
+         {:ok, new_labor} <- Pair.initiate(spec, labor) do
+      {:noreply, %{data | labors: Map.put(labors, node_name, new_labor)}}
+    else
+      _ -> {:noreply, data}
+    end
+  end
+
   def handle_info({:"$load_release", labor}, %{spec: spec, labors: labors} = data) do
     Logger.info("Loading the release for #{inspect(labor.name)}")
-    labor = load_and_run(spec, labor)
+    labor = Pair.load_and_pair(spec, labor)
     {:noreply, %{data | labors: Map.put(labors, labor.name, labor)}}
+  end
+
+  def handle_info({:"$telemetry", telemetry}, %{mod: mod, labors: labors, state: state} = data) do
+    with {:ok, labor} <- Map.fetch(labors, telemetry.name) do
+      Logger.info("Receiving telemetry data from #{telemetry.name}. Labor: #{inspect(labor)}")
+
+      case mod.handle_telemetry(telemetry, state) do
+        {:ok, new_state} ->
+          {:noreply, %{data | state: new_state}}
+
+        {:error, error} ->
+          Logger.info(
+            "Failed to process: #{inspect(telemetry)}. Labor: #{inspect(labor)}. Error: #{
+              inspect(error)
+            }"
+          )
+
+          {:noreply, data}
+      end
+    else
+      _ ->
+        Logger.warn(
+          "Receiving unknown telemetry data #{inspect(telemetry)}. Labors: #{inspect(labors)}"
+        )
+
+        {:noreply, data}
+    end
   end
 
   @doc false
@@ -418,52 +479,28 @@ defmodule Overseer do
     Map.delete(labors, name)
   end
 
-  defp setup_conn_timer(labor, timeout) do
-    ref = Process.send_after(self(), {:"$timeout", labor.name}, timeout)
-    # just cancel previous timer
-    labor = cancel_conn_timer(labor)
-    Logger.info("Setup the timer for #{inspect(labor)}")
-    %{labor | timer: ref}
-  end
-
-  defp cancel_conn_timer(labor) do
-    case is_reference(labor.timer) do
-      false ->
-        labor
-
-      _ ->
-        Logger.info("Cancel the timer for #{inspect(labor)}")
-        Process.cancel_timer(labor.timer)
-        %{labor | timer: nil}
-    end
-  end
+  # defp setup_conn_timer(labor, timeout) do
+  #   ref = Process.send_after(self(), {:"$timeout", labor.name}, timeout)
+  #   # just cancel previous timer
+  #   labor = cancel_conn_timer(labor)
+  #   Logger.info("Setup the timer for #{inspect(labor)}")
+  #   %{labor | timer: ref}
+  # end
+  #
+  # defp cancel_conn_timer(labor) do
+  #   case is_reference(labor.timer) do
+  #     false ->
+  #       labor
+  #
+  #     _ ->
+  #       Logger.info("Cancel the timer for #{inspect(labor)}")
+  #       Process.cancel_timer(labor.timer)
+  #       %{labor | timer: nil}
+  #   end
+  # end
 
   defp trigger_loader(labor) do
     send(self(), {:"$load_release", labor})
     labor
-  end
-
-  defp load_and_run(spec, labor) do
-    name = labor.name
-    release = spec.release
-
-    case release.type do
-      :module -> ExLoader.load_module(release.url, name)
-      :release -> ExLoader.load_release(release.url, name)
-    end
-
-    {:ok, _} = run_release(spec, name)
-    Labor.loaded(labor)
-  end
-
-  defp run_release(spec, node_name) do
-    case spec.release.entry do
-      nil ->
-        {:ok, nil}
-
-      {m, f} ->
-        ocb = Ocb.create(spec)
-        {:ok, :rpc.call(node_name, m, f, [ocb])}
-    end
   end
 end

@@ -24,16 +24,18 @@ defmodule Overseer.Release do
     Utils.assert(type in @release_types, true, "Unsupported release type #{type}")
     Utils.assert(ExLoader.valid_file?(url), true, "Release file #{url} cannot be loaded")
 
-    case entry do
-      nil -> nil
-      {_m, _f, _a} -> nil
-      _ -> raise ArgumentError, "Release entry is not a correct MFA: #{inspect(entry)}"
-    end
+    mfa =
+      case entry do
+        nil -> nil
+        m when is_atom(m) -> {m, :link}
+        {m, f} -> {m, f}
+        _ -> raise ArgumentError, "Release entry is not a correct MFA: #{inspect(entry)}"
+      end
 
     %Release{
       type: type,
       url: url,
-      entry: entry
+      entry: mfa
     }
   end
 end

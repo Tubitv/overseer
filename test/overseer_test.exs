@@ -41,13 +41,12 @@ defmodule OverseerTest do
     data = {@local_adapter, @release, @opts}
     assert {:ok, pid} = MyOverseer.start_link(data, name: MyOverseer)
 
-    overseer = node()
-    assert %Labor{overseer: ^overseer, name: name} = MyOverseer.start_child(pid)
+    assert %Labor{name: name} = MyOverseer.start_child(pid)
 
     data = MyOverseer.debug()
     assert Enum.count(data.labors) == 1
     labor = Map.get(data.labors, name)
-    assert Labor.is_connected(labor) == true
+    assert Labor.is_disconnected(labor) == false
 
     assert :ok = :rpc.call(name, :init, :stop, [])
     Process.exit(pid, :kill)
@@ -57,14 +56,13 @@ defmodule OverseerTest do
     data = {@local_adapter, @release, @opts}
     assert {:ok, pid} = MyOverseer.start_link(data, name: MyOverseer)
 
-    overseer = node()
-    assert %Labor{overseer: ^overseer, name: name1} = MyOverseer.start_child(pid)
-    assert %Labor{overseer: ^overseer, name: name2} = MyOverseer.start_child(pid)
+    assert %Labor{name: name1} = MyOverseer.start_child(pid)
+    assert %Labor{name: name2} = MyOverseer.start_child(pid)
 
     data = MyOverseer.debug()
     assert Enum.count(data.labors) == 2
     labor2 = Map.get(data.labors, name2)
-    assert Labor.is_connected(labor2) == true
+    assert Labor.is_disconnected(labor2) == false
     MyOverseer.terminate_child(name2)
     data = wait_termination(MyOverseer.debug(), 6)
     assert Enum.count(data.labors) == 1
@@ -93,13 +91,11 @@ defmodule OverseerTest do
     opts = [strategy: :simple_one_for_one, max_nodes: 1]
     assert {:ok, pid} = MyOverseer.start_link({@local_adapter, @release, opts}, name: MyOverseer)
 
-    overseer = node()
-
-    assert %Labor{overseer: ^overseer, name: name1} = MyOverseer.start_child()
+    assert %Labor{name: name1} = MyOverseer.start_child()
     assert nil == MyOverseer.start_child()
 
     MyOverseer.terminate_child(name1)
-    assert %Labor{overseer: ^overseer, name: name2} = MyOverseer.start_child()
+    assert %Labor{name: name2} = MyOverseer.start_child()
 
     assert :ok = :rpc.call(name2, :init, :stop, [])
     Process.exit(pid, :kill)
@@ -108,13 +104,11 @@ defmodule OverseerTest do
   test "disconnected children shall be removed after timeout" do
     timeout = 1000
     mod_file = OverseerTest.Utils.get_path("modules/beam/Elixir.AutoConn.beam")
-    release = {:module, mod_file, {AutoConn, :start_link, []}}
+    release = {:module, mod_file, {AutoConn, :start_link}}
     opts = [strategy: :simple_one_for_one, conn_timeout: timeout]
     assert {:ok, pid} = MyOverseer.start_link({@local_adapter, release, opts}, name: MyOverseer)
 
-    overseer = node()
-
-    assert %Labor{overseer: ^overseer, name: name} = MyOverseer.start_child()
+    assert %Labor{name: name} = MyOverseer.start_child()
     :timer.sleep(timeout)
 
     # AutoConn is loaded and started once connected. make sure remote node destroy itself

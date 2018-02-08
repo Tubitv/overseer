@@ -142,6 +142,7 @@ defmodule Overseer do
 
   require Logger
   alias Overseer.{Labor, State}
+  alias GenExecutor.Ocb
 
   @doc false
   defmacro __using__(opts) do
@@ -328,9 +329,9 @@ defmodule Overseer do
     end
   end
 
-  def handle_info({:"$load_release", labor}, %{spec: %{release: release}, labors: labors} = data) do
+  def handle_info({:"$load_release", labor}, %{spec: spec, labors: labors} = data) do
     Logger.info("Loading the release for #{inspect(labor.name)}")
-    labor = load_and_run(release, labor)
+    labor = load_and_run(spec, labor)
     {:noreply, %{data | labors: Map.put(labors, labor.name, labor)}}
   end
 
@@ -442,26 +443,27 @@ defmodule Overseer do
     labor
   end
 
-  defp load_and_run(release, labor) do
+  defp load_and_run(spec, labor) do
     name = labor.name
+    release = spec.release
 
     case release.type do
       :module -> ExLoader.load_module(release.url, name)
       :release -> ExLoader.load_release(release.url, name)
     end
 
-    run_release(release, name)
-    labor
+    {:ok, _} = run_release(spec, name)
+    Labor.loaded(labor)
   end
 
-  defp run_release(release, node_name) do
-    case release.entry do
+  defp run_release(spec, node_name) do
+    case spec.release.entry do
       nil ->
-        release
+        {:ok, nil}
 
-      {m, f, a} ->
-        :rpc.call(node_name, m, f, a)
-        release
+      {m, f} ->
+        ocb = Ocb.create(spec)
+        {:ok, :rpc.call(node_name, m, f, [ocb])}
     end
   end
 end

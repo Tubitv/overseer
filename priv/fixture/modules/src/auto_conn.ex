@@ -2,8 +2,8 @@ defmodule AutoConn do
   use GenServer
   @timeout 10000
 
-  def start_link do
-    GenServer.start_link(__MODULE__, nil, name: AutoConn)
+  def start_link(ocb) do
+    GenServer.start_link(__MODULE__, ocb, name: AutoConn)
   end
 
   def disconnect, do: GenServer.call(__MODULE__, :disconnect)
@@ -11,18 +11,29 @@ defmodule AutoConn do
   def halt(timeout \\ @timeout), do: Process.send_after(__MODULE__, :halt, timeout)
 
   # callbacks
-  def init(_) do
-    node =
-      :hidden
-      |> Node.list
-      |> List.first
-    {:ok, node}
+  def init(ocb) do
+
+    {:ok, %{ocb: ocb, progress: 0}}
   end
 
-  def handle_call(:disconnect, _from, node), do: {:reply, Node.disconnect(node), node}
-  def handle_call(:connect, _from, node), do: {:reply, Node.connect(node), node}
-  def handle_info(:halt, node) do
+  def handle_call(:disconnect, _from, %{ocb: ocb} = state), do: {:reply, Node.disconnect(ocb.name), state}
+  def handle_call(:connect, _from, %{ocb: ocb} = state), do: {:reply, Node.connect(ocb.name), state}
+
+  def handle_info(:halt, %{ocb: ocb} = state) do
     :init.stop()
-    {:noreply, node}
+    {:noreply, state}
+  end
+
+  def handle_info(:progress, %{ocb: ocb, progress: progress} = state) do
+    new_progress = progress + 100
+    case new_progress >= 1000 do
+      true -> nil
+      false -> periodic_update()
+    end
+    {:noreply, %{state | progress: new_progress}}
+  end
+
+  defp periodic_update do
+    Process.send_after(self(), :progress, 100)
   end
 end

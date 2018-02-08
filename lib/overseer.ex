@@ -165,6 +165,9 @@ defmodule Overseer do
 
       def terminate_child(name), do: Overseer.terminate_child(__MODULE__, name)
       def terminate_child(pid, name), do: Overseer.terminate_child(pid, name)
+
+      def count_children, do: Overseer.count_children(__MODULE__)
+      def count_children(pid), do: Overseer.count_children(pid)
     end
   end
 
@@ -194,13 +197,9 @@ defmodule Overseer do
     GenServer.start_link(__MODULE__, {mod, spec}, options)
   end
 
-  def start_child(name_or_pid) do
-    GenServer.call(name_or_pid, :"$start_child")
-  end
-
-  def terminate_child(name_or_pid, node_name) do
-    GenServer.call(name_or_pid, {:"$terminate_child", node_name})
-  end
+  def start_child(pid), do: GenServer.call(pid, :"$start_child")
+  def terminate_child(pid, node_name), do: GenServer.call(pid, {:"$terminate_child", node_name})
+  def count_children(pid), do: GenServer.call(pid, :"$count_children")
 
   # callbacks
   def init({mod, data}) when is_atom(mod) do
@@ -213,10 +212,14 @@ defmodule Overseer do
   end
 
   def handle_call(:"$start_child", _from, %{spec: spec, labors: labors} = data) do
-    with {:ok, labor} <- spec.adapter.spawn(spec) do
+    with true <- count_labors(labors) < spec.max_nodes,
+         {:ok, labor} <- spec.adapter.spawn(spec) do
+      labor = setup_conn_timer(labor, spec.conn_timeout)
       {:reply, labor, %{data | labors: Map.put(labors, labor.name, labor)}}
     else
-      err -> {:reply, err, data}
+      err ->
+        Logger.info("Failed to create the child. Reason: #{inspect(err)}")
+        {:reply, nil, data}
     end
   end
 
@@ -227,6 +230,10 @@ defmodule Overseer do
     else
       err -> {:reply, err, data}
     end
+  end
+
+  def handle_call(:"$count_children", _from, %{labors: labors} = data) do
+    {:reply, count_labors(labors), data}
   end
 
   def handle_call(:"$debug", _from, data) do
@@ -256,7 +263,8 @@ defmodule Overseer do
   def handle_info({:nodeup, node_name, _}, %{mod: mod, labors: labors, state: state} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
          {:ok, new_state} <- mod.handle_connected(node_name, state) do
-      Logger.info("#{node_name} is up. Update its #{inspect(labor)}")
+      Logger.info("#{node_name} is up. Update its #{inspect(labor)} and cancelled the timer.")
+      labor = cancel_conn_timer(labor)
       new_labors = Map.put(labors, node_name, Labor.connected(labor))
       {:noreply, %{data | labors: new_labors, state: new_state}}
     else
@@ -266,17 +274,22 @@ defmodule Overseer do
     end
   end
 
-  def handle_info({:nodedown, node_name, _}, %{mod: mod, labors: labors, state: state} = data) do
+  def handle_info(
+        {:nodedown, node_name, _},
+        %{mod: mod, labors: labors, spec: spec, state: state} = data
+      ) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
          {:ok, new_state} <- mod_handle_down(mod, labor, state) do
-      Logger.info(
-        "#{node_name} is down. Update its #{inspect(labor)}: Labor.is_terminated(labor)"
-      )
+      Logger.info("#{node_name} is down. Update its #{inspect(labor)}")
 
       new_labors =
         case Labor.is_terminated(labor) do
-          true -> Map.delete(labors, node_name)
-          _ -> Map.put(labors, node_name, Labor.disconnected(labor))
+          true ->
+            delete_labor(labors, node_name)
+
+          _ ->
+            labor = setup_conn_timer(labor, spec.conn_timeout)
+            Map.put(labors, node_name, Labor.disconnected(labor))
         end
 
       {:noreply, %{data | labors: new_labors, state: new_state}}
@@ -287,6 +300,19 @@ defmodule Overseer do
         )
 
         {:noreply, data}
+    end
+  end
+
+  def handle_info({:"$timeout", node_name}, %{labors: labors} = data) do
+    Logger.info("Timeout triggered: #{inspect(node_name)}")
+
+    with {:ok, labor} <- Map.fetch(labors, node_name) do
+      case Labor.is_disconnected(labor) do
+        true -> {:noreply, %{data | labors: delete_labor(labors, node_name)}}
+        _ -> {:noreply, data}
+      end
+    else
+      _ -> {:noreply, data}
     end
   end
 
@@ -360,6 +386,36 @@ defmodule Overseer do
     case Labor.is_terminated(labor) do
       true -> mod.handle_terminated(labor.name, state)
       _ -> mod.handle_disconnected(labor.name, state)
+    end
+  end
+
+  defp count_labors(labors) do
+    labors
+    |> Enum.filter(fn {_, labor} -> not Labor.is_terminated(labor) end)
+    |> Enum.count()
+  end
+
+  defp delete_labor(labors, name) do
+    Map.delete(labors, name)
+  end
+
+  defp setup_conn_timer(labor, timeout) do
+    ref = Process.send_after(self(), {:"$timeout", labor.name}, timeout)
+    # just cancel previous timer
+    labor = cancel_conn_timer(labor)
+    Logger.info("Setup the timer for #{inspect(labor)}")
+    %{labor | timer: ref}
+  end
+
+  defp cancel_conn_timer(labor) do
+    case is_reference(labor.timer) do
+      false ->
+        labor
+
+      _ ->
+        Logger.info("Cancel the timer for #{inspect(labor)}")
+        Process.cancel_timer(labor.timer)
+        %{labor | timer: nil}
     end
   end
 end

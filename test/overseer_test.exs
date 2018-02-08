@@ -72,6 +72,61 @@ defmodule OverseerTest do
     Process.exit(pid, :kill)
   end
 
+  test "count_children shall reflect the number of non terminated children" do
+    data = {@local_adapter, @release, @opts}
+    assert {:ok, pid} = MyOverseer.start_link(data, name: MyOverseer)
+
+    n = 5
+
+    labors =
+      1..n
+      |> Enum.map(fn _ -> MyOverseer.start_child() end)
+
+    [first_labor | rest] = labors
+    MyOverseer.terminate_child(first_labor.name)
+    assert n - 1 == MyOverseer.count_children()
+    Enum.each(rest, fn labor -> assert :ok = :rpc.call(labor.name, :init, :stop, []) end)
+    Process.exit(pid, :kill)
+  end
+
+  test "cannot create more child then max_nodes" do
+    opts = [strategy: :simple_one_for_one, max_nodes: 1]
+    assert {:ok, pid} = MyOverseer.start_link({@local_adapter, @release, opts}, name: MyOverseer)
+
+    overseer = node()
+
+    assert %Labor{overseer: ^overseer, name: name1} = MyOverseer.start_child()
+    assert nil == MyOverseer.start_child()
+
+    MyOverseer.terminate_child(name1)
+    assert %Labor{overseer: ^overseer, name: name2} = MyOverseer.start_child()
+
+    assert :ok = :rpc.call(name2, :init, :stop, [])
+    Process.exit(pid, :kill)
+  end
+
+  test "disconnected children shall be removed after timeout" do
+    timeout = 1000
+    mod_file = OverseerTest.Utils.get_path("modules/beam/Elixir.AutoConn.beam")
+    opts = [strategy: :simple_one_for_one, conn_timeout: timeout]
+    assert {:ok, pid} = MyOverseer.start_link({@local_adapter, @release, opts}, name: MyOverseer)
+
+    overseer = node()
+
+    assert %Labor{overseer: ^overseer, name: name} = MyOverseer.start_child()
+
+    ExLoader.load_module(mod_file, name)
+    :rpc.call(name, AutoConn, :start_link, [overseer])
+    # make sure remote node destroy itself
+    :rpc.call(name, AutoConn, :halt, [5000])
+    # force to change the cookie so that the remote node cannot auto reconnect.
+    :rpc.call(name, :erlang, :set_cookie, [name, :badcookie])
+    :rpc.call(name, AutoConn, :disconnect, [])
+    :timer.sleep(timeout)
+    assert MyOverseer.count_children() == 0
+    Process.exit(pid, :kill)
+  end
+
   defp wait_termination(_data, 0), do: MyOverseer.debug()
 
   defp wait_termination(old_data, n) do

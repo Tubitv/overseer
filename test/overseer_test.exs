@@ -44,7 +44,46 @@ defmodule OverseerTest do
     overseer = node()
     assert %Labor{overseer: ^overseer, name: name} = MyOverseer.start_child(pid)
 
+    data = MyOverseer.debug()
+    assert Enum.count(data.labors) == 1
+    labor = Map.get(data.labors, name)
+    assert Labor.is_connected(labor) == true
+
     assert :ok = :rpc.call(name, :init, :stop, [])
     Process.exit(pid, :kill)
+  end
+
+  test "start 2 children and terminate one should leave one" do
+    data = {@local_adapter, @release, @opts}
+    assert {:ok, pid} = MyOverseer.start_link(data, name: MyOverseer)
+
+    overseer = node()
+    assert %Labor{overseer: ^overseer, name: name1} = MyOverseer.start_child(pid)
+    assert %Labor{overseer: ^overseer, name: name2} = MyOverseer.start_child(pid)
+
+    data = MyOverseer.debug()
+    assert Enum.count(data.labors) == 2
+    labor2 = Map.get(data.labors, name2)
+    assert Labor.is_connected(labor2) == true
+    MyOverseer.terminate_child(name2)
+    data = wait_termination(MyOverseer.debug(), 6)
+    assert Enum.count(data.labors) == 1
+    assert :ok = :rpc.call(name1, :init, :stop, [])
+    Process.exit(pid, :kill)
+  end
+
+  defp wait_termination(_data, 0), do: MyOverseer.debug()
+
+  defp wait_termination(old_data, n) do
+    data = MyOverseer.debug()
+
+    case old_data == data do
+      true ->
+        :timer.sleep(200)
+        wait_termination(data, n - 1)
+
+      false ->
+        data
+    end
   end
 end

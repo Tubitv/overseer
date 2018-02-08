@@ -61,6 +61,9 @@ defmodule Overseer.Labor do
   @moduledoc false
   alias Overseer.Labor
 
+  # TODO: how can we unify the type def of states and the states here?
+  @all_states [:uninitialized, :connected, :loaded, :active, :disconnected, :terminated]
+
   @type state :: :uninitialized | :connected | :loaded | :active | :disconnected | :terminated
 
   @type t :: %__MODULE__{
@@ -83,15 +86,18 @@ defmodule Overseer.Labor do
     }
   end
 
-  # TODO: how can we unify the type def of states and the states here?
-  [:uninitialized, :connected, :loaded, :active, :disconnected, :terminated]
+  @all_states
   |> Enum.map(fn state ->
     def unquote(state)(labor), do: set_state(labor, unquote(state))
   end)
 
-  defp set_state(labor, new_state) when is_atom(new_state) do
-    %{labor | state: new_state}
-  end
+  @all_states
+  |> Enum.map(fn state ->
+    def unquote(:"is_#{state}")(labor), do: is_state(labor, unquote(state))
+  end)
+
+  defp set_state(labor, new_state) when is_atom(new_state), do: %{labor | state: new_state}
+  defp is_state(labor, state) when is_atom(state), do: labor.state == state
 end
 
 defmodule Overseer.State do

@@ -13,4 +13,10 @@ opts = [
   max_nodes: 10
 ]
 
-release = OverseerTest.Utils.get_path("apps/tarball/example_app.tar.gz")
+release = try do
+  OverseerTest.Utils.get_path("apps/tarball/example_app.tar.gz")
+rescue
+  _ -> nil
+end
+
+MyOverseer.start_link({local_adapter, release, opts}, name: MyOverseer)

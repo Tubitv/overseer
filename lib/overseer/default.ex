@@ -6,27 +6,27 @@ defmodule Overseer.Default do
     {:ok, %{}}
   end
 
-  def handle_connected(_data, _node, state) do
-    {:noreply, state}
+  def handle_connected(_node, state) do
+    {:ok, state}
   end
 
-  def handle_disconnected(_data, _node, state) do
-    {:noreply, state}
+  def handle_disconnected(_node, state) do
+    {:ok, state}
   end
 
   def handle_telemetry({:progress, _data}, _node, state) do
-    {:noreply, state}
+    {:ok, state}
   end
 
   def handle_telemetry(_data, _node, state) do
-    {:noreply, state}
+    {:ok, state}
   end
 
   def handle_terminated(_node, state) do
-    {:noreply, state}
+    {:ok, state}
   end
 
   def handle_event(_event, _node, state) do
-    {:noreply, state}
+    {:ok, state}
   end
 end

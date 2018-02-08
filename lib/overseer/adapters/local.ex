@@ -21,7 +21,8 @@ defmodule Overseer.Adapters.Local do
   end
 
   def terminate(labor) do
-    {:ok, labor}
+    :rpc.call(labor.name, :init, :stop, [])
+    {:ok, Labor.terminated(labor)}
   end
 
   # private functions

@@ -51,11 +51,11 @@ defmodule Overseer do
           {:ok, state}
         end
 
-        def handle_connected(data, node, state) do
+        def handle_connected(node, state) do
 
         end
 
-        def handle_disconnected(data, node, state) do
+        def handle_disconnected(node, state) do
 
         end
 
@@ -118,17 +118,22 @@ defmodule Overseer do
   @doc """
   Invoked when a remote node connected
   """
-  @callback handle_connected(data :: term, from :: node, state :: term) :: {:noreply, term}
+  @callback handle_connected(from :: node, state :: term) :: {:noreply, term}
 
   @doc """
   Invoked when a remote node disconnected
   """
-  @callback handle_disconnected(data :: term, from :: node, state :: term) :: {:noreply, term}
+  @callback handle_disconnected(from :: node, state :: term) :: {:noreply, term}
 
   @doc """
   Invoked when a remote node sends telemetry report
   """
   @callback handle_telemetry(data :: term, from :: node, state :: term) :: {:noreply, term}
+
+  @doc """
+  Invoked when a remote node is terminated
+  """
+  @callback handle_terminated(from :: node, state :: term) :: {:noreply, term}
 
   @doc """
   Invoked when a remote node sends other events
@@ -157,6 +162,9 @@ defmodule Overseer do
 
       def start_child, do: Overseer.start_child(__MODULE__)
       def start_child(pid), do: Overseer.start_child(pid)
+
+      def terminate_child(name), do: Overseer.terminate_child(__MODULE__, name)
+      def terminate_child(pid, name), do: Overseer.terminate_child(pid, name)
     end
   end
 
@@ -187,7 +195,11 @@ defmodule Overseer do
   end
 
   def start_child(name_or_pid) do
-    GenServer.call(name_or_pid, :start_child)
+    GenServer.call(name_or_pid, :"$start_child")
+  end
+
+  def terminate_child(name_or_pid, node_name) do
+    GenServer.call(name_or_pid, {:"$terminate_child", node_name})
   end
 
   # callbacks
@@ -200,12 +212,25 @@ defmodule Overseer do
     end
   end
 
-  def handle_call(:start_child, _from, %{spec: spec, labors: labors} = data) do
+  def handle_call(:"$start_child", _from, %{spec: spec, labors: labors} = data) do
     with {:ok, labor} <- spec.adapter.spawn(spec) do
       {:reply, labor, %{data | labors: Map.put(labors, labor.name, labor)}}
     else
       err -> {:reply, err, data}
     end
+  end
+
+  def handle_call({:"$terminate_child", node_name}, _from, %{spec: spec, labors: labors} = data) do
+    with {:ok, labor} <- Map.fetch(labors, node_name),
+         {:ok, new_labor} <- spec.adapter.terminate(labor) do
+      {:reply, new_labor, %{data | labors: Map.put(labors, node_name, new_labor)}}
+    else
+      err -> {:reply, err, data}
+    end
+  end
+
+  def handle_call(:"$debug", _from, data) do
+    {:reply, data, data}
   end
 
   def handle_call(msg, from, %{mod: mod, state: state} = data) do
@@ -228,10 +253,12 @@ defmodule Overseer do
     noreply_callback(:handle_cast, [msg, state], data)
   end
 
-  def handle_info({:nodeup, node_name, _}, %{labors: labors} = data) do
-    with {:ok, labor} <- Map.fetch(labors, node_name) do
-      Logger.info("#{node_name} is up. Update its state.")
-      {:noreply, %{data | labors: Map.put(labors, node_name, Labor.connected(labor))}}
+  def handle_info({:nodeup, node_name, _}, %{mod: mod, labors: labors, state: state} = data) do
+    with {:ok, labor} <- Map.fetch(labors, node_name),
+         {:ok, new_state} <- mod.handle_connected(node_name, state) do
+      Logger.info("#{node_name} is up. Update its #{inspect(labor)}")
+      new_labors = Map.put(labors, node_name, Labor.connected(labor))
+      {:noreply, %{data | labors: new_labors, state: new_state}}
     else
       _err ->
         Logger.warn("#{node_name} is up. But it doesn't belong to any labors: #{inspect(labors)}")
@@ -239,10 +266,20 @@ defmodule Overseer do
     end
   end
 
-  def handle_info({:nodedown, node_name, _}, %{labors: labors} = data) do
-    with {:ok, labor} <- Map.fetch(labors, node_name) do
-      Logger.info("#{node_name} is down. Update its state.")
-      {:noreply, %{data | labors: Map.put(labors, node_name, Labor.disconnected(labor))}}
+  def handle_info({:nodedown, node_name, _}, %{mod: mod, labors: labors, state: state} = data) do
+    with {:ok, labor} <- Map.fetch(labors, node_name),
+         {:ok, new_state} <- mod_handle_down(mod, labor, state) do
+      Logger.info(
+        "#{node_name} is down. Update its #{inspect(labor)}: Labor.is_terminated(labor)"
+      )
+
+      new_labors =
+        case Labor.is_terminated(labor) do
+          true -> Map.delete(labors, node_name)
+          _ -> Map.put(labors, node_name, Labor.disconnected(labor))
+        end
+
+      {:noreply, %{data | labors: new_labors, state: new_state}}
     else
       _err ->
         Logger.warn(
@@ -316,6 +353,13 @@ defmodule Overseer do
 
       other ->
         {:stop, {:bad_return_value, other}, data}
+    end
+  end
+
+  defp mod_handle_down(mod, labor, state) do
+    case Labor.is_terminated(labor) do
+      true -> mod.handle_terminated(labor.name, state)
+      _ -> mod.handle_disconnected(labor.name, state)
     end
   end
 end

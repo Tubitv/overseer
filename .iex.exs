@@ -14,7 +14,7 @@ opts = [
 ]
 
 release = try do
-  OverseerTest.Utils.get_path("apps/tarball/example_app.tar.gz")
+  {:module, OverseerTest.Utils.get_path("modules/beam/Elixir.AutoConn.beam", {AutoConn, :start_link, []})
 rescue
   _ -> nil
 end

@@ -183,11 +183,13 @@ defmodule Overseer do
         spot?: true
       ]}
 
+      iex> release = {:release, "a.tar.gz", {Entrance, :fun, []}}
+
       iex> opts = [
         strategy: :simple_one_for_one,
         max_nodes: 10
       ]
-      iex> Overseer.start_link({adapter, "a.tar.gz", opts}, name: MyOverseer)
+      iex> Overseer.start_link({adapter, release, opts}, name: MyOverseer)
   """
   def start_link(spec, options) when is_tuple(spec) and is_list(options) do
     start_link(Overseer.Default, spec, options)
@@ -264,8 +266,14 @@ defmodule Overseer do
     with {:ok, labor} <- Map.fetch(labors, node_name),
          {:ok, new_state} <- mod.handle_connected(node_name, state) do
       Logger.info("#{node_name} is up. Update its #{inspect(labor)} and cancelled the timer.")
-      labor = cancel_conn_timer(labor)
-      new_labors = Map.put(labors, node_name, Labor.connected(labor))
+
+      new_labor =
+        labor
+        |> cancel_conn_timer
+        |> Labor.connected()
+        |> trigger_loader
+
+      new_labors = Map.put(labors, node_name, new_labor)
       {:noreply, %{data | labors: new_labors, state: new_state}}
     else
       _err ->
@@ -288,8 +296,12 @@ defmodule Overseer do
             delete_labor(labors, node_name)
 
           _ ->
-            labor = setup_conn_timer(labor, spec.conn_timeout)
-            Map.put(labors, node_name, Labor.disconnected(labor))
+            new_labor =
+              labor
+              |> setup_conn_timer(spec.conn_timeout)
+              |> Labor.disconnected()
+
+            Map.put(labors, node_name, new_labor)
         end
 
       {:noreply, %{data | labors: new_labors, state: new_state}}
@@ -314,6 +326,12 @@ defmodule Overseer do
     else
       _ -> {:noreply, data}
     end
+  end
+
+  def handle_info({:"$load_release", labor}, %{spec: %{release: release}, labors: labors} = data) do
+    Logger.info("Loading the release for #{inspect(labor.name)}")
+    labor = load_and_run(release, labor)
+    {:noreply, %{data | labors: Map.put(labors, labor.name, labor)}}
   end
 
   @doc false
@@ -416,6 +434,34 @@ defmodule Overseer do
         Logger.info("Cancel the timer for #{inspect(labor)}")
         Process.cancel_timer(labor.timer)
         %{labor | timer: nil}
+    end
+  end
+
+  defp trigger_loader(labor) do
+    send(self(), {:"$load_release", labor})
+    labor
+  end
+
+  defp load_and_run(release, labor) do
+    name = labor.name
+
+    case release.type do
+      :module -> ExLoader.load_module(release.url, name)
+      :release -> ExLoader.load_release(release.url, name)
+    end
+
+    run_release(release, name)
+    labor
+  end
+
+  defp run_release(release, node_name) do
+    case release.entry do
+      nil ->
+        release
+
+      {m, f, a} ->
+        :rpc.call(node_name, m, f, a)
+        release
     end
   end
 end

@@ -70,10 +70,6 @@ defmodule Overseer do
         def handle_terminated(node, state) do
 
         end
-
-        def handle_event(event, node, state) do
-
-        end
       end
 
       defmodule Application1 do
@@ -144,6 +140,11 @@ defmodule Overseer do
   """
   @callback handle_event(data :: term, from :: node, state :: term) :: {:noreply, term}
 
+  @optional_callbacks handle_connected: 2,
+                      handle_disconnected: 2,
+                      handle_terminated: 2,
+                      handle_event: 3
+
   @doc false
   defmacro __using__(opts) do
     quote location: :keep, bind_quoted: [opts: opts] do
@@ -184,7 +185,7 @@ defmodule Overseer do
         spot?: true
       ]}
 
-      iex> release = {:release, "a.tar.gz", {Entrance, :fun, []}}
+      iex> release = {:release, "a.tar.gz", {Module, :pair}}
 
       iex> opts = [
         strategy: :simple_one_for_one,
@@ -359,7 +360,9 @@ defmodule Overseer do
          {:ok, new_labor} <- Pair.initiate(spec, labor) do
       {:noreply, %{data | labors: Map.put(labors, node_name, new_labor)}}
     else
-      _ -> {:noreply, data}
+      _ ->
+        Logger.warn("Failed to pair with #{node_name}.")
+        {:noreply, data}
     end
   end
 
@@ -478,26 +481,6 @@ defmodule Overseer do
   defp delete_labor(labors, name) do
     Map.delete(labors, name)
   end
-
-  # defp setup_conn_timer(labor, timeout) do
-  #   ref = Process.send_after(self(), {:"$timeout", labor.name}, timeout)
-  #   # just cancel previous timer
-  #   labor = cancel_conn_timer(labor)
-  #   Logger.info("Setup the timer for #{inspect(labor)}")
-  #   %{labor | timer: ref}
-  # end
-  #
-  # defp cancel_conn_timer(labor) do
-  #   case is_reference(labor.timer) do
-  #     false ->
-  #       labor
-  #
-  #     _ ->
-  #       Logger.info("Cancel the timer for #{inspect(labor)}")
-  #       Process.cancel_timer(labor.timer)
-  #       %{labor | timer: nil}
-  #   end
-  # end
 
   defp trigger_loader(labor) do
     send(self(), {:"$load_release", labor})

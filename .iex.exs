@@ -14,7 +14,7 @@ opts = [
 ]
 
 release = try do
-  {:module, OverseerTest.Utils.get_path("modules/beam/Elixir.AutoConn.beam"), {AutoConn, :start_link}}
+  {:module, OverseerTest.Utils.get_fixture_path("modules/beam/Elixir.AutoConn.beam"), {AutoConn, :start_link}}
 rescue
   _ -> nil
 end

@@ -17,7 +17,7 @@ defmodule OverseerTest do
     max_nodes: 10
   ]
 
-  @release {:release, OverseerTest.Utils.get_path("apps/tarball/example_app.tar.gz")}
+  @release {:release, OverseerTest.Utils.get_fixture_path("apps/tarball/example_app.tar.gz")}
 
   setup_all do
     Node.start(:"test-overseer@127.0.0.1", :longnames)
@@ -103,7 +103,7 @@ defmodule OverseerTest do
 
   test "disconnected children shall be removed after timeout" do
     timeout = 1000
-    mod_file = OverseerTest.Utils.get_path("modules/beam/Elixir.AutoConn.beam")
+    mod_file = OverseerTest.Utils.get_fixture_path("modules/beam/Elixir.AutoConn.beam")
     release = {:module, mod_file, {AutoConn, :start_link}}
     opts = [strategy: :simple_one_for_one, conn_timeout: timeout]
     assert {:ok, pid} = MyOverseer.start_link({@local_adapter, release, opts}, name: MyOverseer)

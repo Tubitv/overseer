@@ -1,10 +1,8 @@
 defmodule OverseerTest.Utils do
   @moduledoc false
-  alias Overseer.MixProject
+  alias Mix.Project
 
-  def get_path(path) do
-    MixProject.project()[:app]
-    |> Application.app_dir()
-    |> Path.join("priv/fixture/#{path}")
+  def get_fixture_path(p) do
+    Project.deps_path() |> Path.join("../test/fixture/#{p}")
   end
 end

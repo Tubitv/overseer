@@ -1,4 +1,4 @@
-FIXTURE_DIR=priv/fixture
+FIXTURE_DIR=test/fixture
 SUBDIR=$(FIXTURE_DIR)/modules $(FIXTURE_DIR)/apps
 
 

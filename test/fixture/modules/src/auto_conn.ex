@@ -40,13 +40,14 @@ defmodule AutoConn do
     {:noreply, state}
   end
 
-  def handle_info(:halt, state) do
+  def handle_info(:halt, %{ocb: ocb} = state) do
+    send(ocb.pid, {:"$telemetry", %{name: node(), id: "test-id", data: :terminate}})
     :init.stop()
     {:noreply, state}
   end
 
   def handle_info(:error, state) do
-    1/0
+    _ = 1/0
     {:noreply, state}
   end
 

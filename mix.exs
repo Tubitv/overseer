@@ -40,11 +40,12 @@ defmodule Overseer.MixProject do
   defp deps do
     [
       {:ex_loader, "~> 0.4"},
+      {:jason, "~> 1.0"},
       {:nanoid, "~> 1.0"},
+      {:vex, "~> 0.6.0"},
       # dev & test
       {:credo, "~> 0.8", only: [:dev, :test]},
       {:ex_doc, "~> 0.18", only: [:dev, :test]},
-      {:jason, "~> 1.0", onbly: [:test]},
       {:pre_commit_hook, "~> 1.2", only: [:dev]}
     ]
   end

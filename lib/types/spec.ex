@@ -28,8 +28,8 @@ defmodule Overseer.Spec do
             args: nil,
             release: nil
 
-  def create(adapter, adapter_args, release_args, options) do
-    strategy = Keyword.get(options, :strategy)
+  def create(adapter, adapter_args, release_args, options \\ []) do
+    strategy = Keyword.get(options, :strategy, :simple_one_for_one)
 
     Utils.assert(
       strategy,

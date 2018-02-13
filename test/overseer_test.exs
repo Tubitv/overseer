@@ -3,14 +3,18 @@ defmodule OverseerTest do
   alias Overseer.Labor
 
   @ec2_adapter {Overseer.Adapters.EC2,
-                [
-                  prefix: "test_ec2_",
+                %{
+                  key_name: "test",
+                  price: 0.05,
                   image: "ami-31bb8c7f",
-                  type: "t2.nano",
-                  spot?: true
-                ]}
+                  instance_type: "t2.nano",
+                  iam_role: "test-role",
+                  subnet: "subnet-11223344",
+                  security_groups: ["sg-11223344"],
+                  prefix: "test_ec2_"
+                }}
 
-  @local_adapter {Overseer.Adapters.Local, [prefix: "test_local_"]}
+  @local_adapter {Overseer.Adapters.Local, %{prefix: "test_local_"}}
 
   @opts [
     strategy: :simple_one_for_one,
@@ -112,10 +116,11 @@ defmodule OverseerTest do
     :timer.sleep(timeout)
 
     # AutoConn is loaded and started once connected. make sure remote node destroy itself
-    :rpc.call(name, AutoConn, :halt, [2000])
+    assert :ok = :rpc.call(name, AutoConn, :halt, [2000])
     # force to change the cookie so that the remote node cannot auto reconnect.
-    :rpc.call(name, :erlang, :set_cookie, [name, :badcookie])
+    assert true = :rpc.call(name, :erlang, :set_cookie, [name, :badcookie])
     :rpc.call(name, AutoConn, :disconnect, [])
+
     :timer.sleep(timeout + 100)
     assert MyOverseer.count_children() == 0
     Process.exit(pid, :kill)

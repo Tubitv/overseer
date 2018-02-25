@@ -1,0 +1,5 @@
+---
+# Path where the code must be deployed to
+service_deploy_to: "/opt/bootloader"
+
+service_name: "bootloader"

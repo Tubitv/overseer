@@ -1,0 +1,38 @@
+- name: 'install python2 to make ansible work with ubuntu 16.04'
+  raw: apt-get -y install python-simplejson
+  become: true
+
+- name: now fake-gather facts
+  action: setup
+
+- name: Gather EC2 facts
+  action: ec2_metadata_facts
+
+- name: Update our package cache if necessary
+  apt: update_cache=yes cache_valid_time=3600
+
+- name: setup the aws optimized kernel if needed
+  apt: name=linux-aws state=present
+  when: ansible_distribution_release == 'xenial'
+
+- name: Install various packages useful for all applications and sysadmin
+  apt: name="{{ item }}" state=present
+  with_items:
+        - vim
+        - git
+        - htop
+        - ntp
+        - libkrb5-dev
+        - dkms
+        - nmon
+        - awscli
+        - aptitude
+
+- name: Install pip - pt. 1
+  apt: name=python-pip state=latest
+
+- name: Install pip - pt. 2
+  pip: name="pip" state=latest
+
+- name: Do all security upgrades
+  apt: upgrade=full

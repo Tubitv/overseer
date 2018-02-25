@@ -1,0 +1,4 @@
+---
+non_priviliged_user: bootloader
+ena_driver_ver: 1.1.3
+ixgbevf_ver: 4.3.3

@@ -1,0 +1,29 @@
+- name: Upload and unarchive ixgbevf file
+  unarchive: src="ixgbevf-{{ ixgbevf_ver }}.tar.gz" dest=/usr/src/
+  become: yes
+  become_user: root
+
+- name: copy dkms config
+  copy: src=dkms.conf dest="/usr/src/ixgbevf-{{ ixgbevf_ver }}/dkms.conf"
+  become: yes
+  become_user: root
+
+- name: add module to dkms
+  command: "dkms add -m ixgbevf -v {{ ixgbevf_ver }}"
+  become: yes
+  become_user: root
+
+- name: build module with dkms
+  command: "dkms build -m ixgbevf -v {{ ixgbevf_ver }}"
+  become: yes
+  become_user: root
+
+- name: install module with dkms
+  command: "dkms install -m ixgbevf -v {{ ixgbevf_ver }}"
+  become: yes
+  become_user: root
+
+- name: rebuild the initramfs so the correct module is loaded at boot time
+  command: update-initramfs -c -k all
+  become: yes
+  become_user: root

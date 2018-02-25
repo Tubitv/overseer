@@ -48,7 +48,7 @@ defmodule Overseer.Adapters.Local do
 
     case Node.connect(name) do
       true -> true
-      false -> connect(name, n - 1)
+      _ -> connect(name, n - 1)
     end
   end
 

@@ -1,0 +1,21 @@
+- name: ssl packages
+  apt: name="{{ item }}" state=present
+  with_items:
+    - libffi-dev
+    - libssl-dev
+    - python-dev
+    - python-openssl
+
+- name: install latest version of ndg-httpsclient
+  pip: name="{{ item }}" state=latest
+  with_items:
+    - ndg-httpsclient
+    - pyasn1
+
+- name: various other useful Python packages
+  pip: name="{{ item }}" state=latest
+  with_items:
+    - boto
+
+- name: deal with broken SNI in newer versions of urllib3 (https://github.com/ansible/ansible/issues/25402)
+  pip: name=urllib3 state=present version=1.13.1

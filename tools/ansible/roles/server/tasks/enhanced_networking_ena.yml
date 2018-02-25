@@ -1,0 +1,29 @@
+- name: install packages we need to build the ena driver and have it available on boot
+  apt: name={{ item }} state=present
+  with_items:
+        - build-essential
+        - dkms
+
+- name: download ENA driver
+  unarchive:
+    src: "https://github.com/amzn/amzn-drivers/archive/ena_linux_{{ ena_driver_ver }}.tar.gz"
+    remote_src: True
+    dest: /usr/src
+
+- name: rename directory
+  command: creates="/usr/src/amzn-drivers-{{ ena_driver_ver }}" mv /usr/src/amzn-drivers-ena_linux_{{ ena_driver_ver }} /usr/src/amzn-drivers-{{ ena_driver_ver }}
+
+- name: copy dkms config
+  copy: src=dkms_ena.conf dest=/usr/src/amzn-drivers-{{ ena_driver_ver }}/dkms.conf
+
+- name: add module to dkms
+  command: dkms add -m amzn-drivers -v {{ ena_driver_ver }}
+
+- name: build module with dkms
+  command: dkms build -m amzn-drivers -v {{ ena_driver_ver }}
+
+- name: install module with dkms
+  command: dkms install -m amzn-drivers -v {{ ena_driver_ver }}
+
+- name: rebuild the initramfs so the correct module is loaded at boot time
+  command: update-initramfs -c -k all

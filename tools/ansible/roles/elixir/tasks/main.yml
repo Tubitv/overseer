@@ -1,0 +1,28 @@
+- name: install some dependencies
+  apt: name={{ item }} state=present
+  with_items:
+    - gcc-4.8
+    - g++-4.8
+    - libblas-dev
+
+- name: Import the Erlang solutions GPG key into apt
+  apt_key:
+    url: http://packages.erlang-solutions.com/ubuntu/erlang_solutions.asc
+    state: present
+
+- name: Add Erlang/OTP deb repository
+  apt_repository:
+    repo: 'deb http://packages.erlang-solutions.com/ubuntu {{ ansible_distribution_release }} contrib'
+    state: present
+
+- name: Install Erlang/OTP
+  apt:
+    name: esl-erlang=1:20.2.2
+    state: present
+    update_cache: yes
+
+- name: Install Elixir
+  apt:
+    name: elixir
+    state: present
+    update_cache: yes

@@ -1,0 +1,12 @@
+- name: make a meaningful hostname
+  set_fact: hostname=slave-node
+
+- name: set pretty hostname prefix
+  hostname: name="{{hostname}}"
+
+- name: add pretty hostname to hosts
+  lineinfile: >
+    dest=/etc/hosts
+    regexp='^127\.0\.0\.1'
+    line='127.0.0.1 localhost {{ hostname }}'
+    state=present

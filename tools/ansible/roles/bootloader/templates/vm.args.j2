@@ -1,0 +1,36 @@
+## Name of the node
+-name {{ ansible_hostname }}@{{ ansible_host }}
+
+## Cookie for distributed erlang. Don't worry, this is completely useless
+-setcookie A)DrR.m[W|&r,?gB%VhkV`:r/>R2tN`e6z5kT[N8apnTcAD)[51KQG%A~332;*vX
+
+## ports for cluster
+-kernel inet_dist_listen_min 9100 inet_dist_listen_max 9155
+
+## Mnesia dir
+-mnesia dir '"{{ service_deploy_to }}/shared/data/mnesia_data/"'
+
+## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+## (Disabled by default..use with caution!) we use systemd instead
+##-heart
+
+## Enable kernel poll and a few async threads
++K true
++A 256
+
+## Increase number of concurrent ports/sockets
+-env ERL_MAX_PORTS 40960
+
+## Tweak GC to run more often
+-env ERL_FULLSWEEP_AFTER 0
+
+# Enable SMP automatically based on availability
+-smp auto
+
++sbt db
+
++sub true
+
++sbwt none
+
++swt low

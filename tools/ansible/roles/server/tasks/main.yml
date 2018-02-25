@@ -1,0 +1,41 @@
+- include: basic.yml
+
+- name: check if we have already installed latest ixgbevf
+  stat: path="/var/lib/dkms/ixgbevf/{{ ixgbevf_ver }}"
+  register: ixgbevf
+
+- name: check if we have already installed latest ena
+  stat: path="/var/lib/dkms/amzn-drivers/{{ ena_driver_ver }}"
+  register: ena
+
+- name: ipv4 interface name
+  set_fact: {"host_netif": "{{ hostvars[inventory_hostname]['ansible_' + ansible_default_ipv4.alias] }}"}
+
+# see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/sriov-networking.html#enhanced-networking-ubuntu
+- include: enhanced_networking.yml
+  when: host_netif.module is defined and host_netif.module == "ixgbevf" and not ixgbevf.stat.exists
+
+- include: enhanced_networking_ena.yml
+  when: host_netif.module is defined and host_netif.module == "ena" and not ena.stat.exists
+
+- include: pythonssl.yml
+  when: ansible_os_family == 'Debian'
+
+- include: hostname.yml
+  when: pretty_hostname is defined
+
+- name: create non-priviliged user
+  user: name="{{ non_priviliged_user | default('bootloader') }}" shell=/bin/bash generate_ssh_key=yes state=present
+
+- name: add prompt file
+  template: src=bash_prompt.j2 dest=/etc/bootloader_bash_prompt.rc
+
+- name: link prompt file to bash.rc
+  lineinfile: >
+    dest="{{ item }}/.bashrc"
+    regexp="^\. /etc/bootloader_bash_prompt.rc"
+    line=". /etc/bootloader_bash_prompt.rc"
+  with_items:
+    - /root
+    - /home/ubuntu
+    - "/home/{{ non_priviliged_user }}"

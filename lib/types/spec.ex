@@ -5,8 +5,8 @@ defmodule Overseer.Spec do
   alias Overseer.{Spec, Release, Utils}
 
   @max_nodes 8
-  @conn_timeout 10 * 1000
-  @pair_timeout 5 * 1000
+  @conn_timeout 600 * 1000
+  @pair_timeout 120 * 1000
 
   @type strategy :: :simple_one_for_one | :one_for_one
 

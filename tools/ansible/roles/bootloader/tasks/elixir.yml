@@ -21,17 +21,9 @@
   become: yes
   become_user: root
 
-- name: reload systemd daemon
-  become: yes
-  become_user: root
-  command: systemctl daemon-reload
-
-- name: stop service
-  service: name={{ service_name }} state=stopped
-  become: yes
-  become_user: root
-
-- name: start service if not already started
-  service: name={{ service_name }} state=started
-  become: yes
-  become_user: root
+- name: restart service
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    name: "{{ service_name }}"
+    enabled: yes

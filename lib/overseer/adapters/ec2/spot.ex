@@ -42,6 +42,13 @@ defmodule Overseer.Adapters.EC2.Spot do
     |> List.first()
   end
 
+  def get_instance_hostname(instance, priv? \\ true) do
+    case priv? do
+      true -> Map.get(instance, "PrivateDnsName")
+      false -> Map.get(instance, "PublicDnsName")
+    end
+  end
+
   def get_instance_ip(instance, priv? \\ true) do
     case priv? do
       true -> Map.get(instance, "PrivateIpAddress")

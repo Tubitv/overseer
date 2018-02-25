@@ -14,8 +14,7 @@ defmodule Overseer.Adapters.EC2 do
   end
 
   def spawn(spec) do
-    id = Overseer.Utils.gen_id(5)
-    name = "#{spec.args.prefix}#{id}"
+    name = "slave-node"
 
     case start_node(spec.args, name) do
       {:ok, name} -> {:ok, Labor.create(name)}
@@ -37,8 +36,8 @@ defmodule Overseer.Adapters.EC2 do
 
       instance_id ->
         info = Spot.get_instance_info(instance_id)
-        priv_ip = Spot.get_instance_ip(info)
-        {:ok, "#{name}@#{priv_ip}"}
+        hostname = Spot.get_instance_hostname(info)
+        {:ok, :"#{name}@#{hostname}"}
     end
   end
 end

@@ -21,9 +21,6 @@
 - include: pythonssl.yml
   when: ansible_os_family == 'Debian'
 
-- include: hostname.yml
-  when: pretty_hostname is defined
-
 - name: create non-priviliged user
   user: name="{{ non_priviliged_user | default('bootloader') }}" shell=/bin/bash generate_ssh_key=yes state=present
 

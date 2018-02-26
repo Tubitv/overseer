@@ -30,7 +30,8 @@ defmodule MyOverseer do
     {:ok, state}
   end
 
-  def handle_telemetry(_data, state) do
+  def handle_telemetry(data, state) do
+    Logger.info("node #{data.name}: telemetry data: #{inspect(data)}")
     {:ok, state}
   end
 

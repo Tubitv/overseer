@@ -39,4 +39,7 @@ defmodule Overseer.Release do
       do_pair: mfa
     }
   end
+
+  def create(args),
+    do: raise(ArgumentError, "args passed to Release.create is invalid: #{inspect(args)}")
 end

@@ -1,0 +1,19 @@
+---
+# Setup folders
+- name: ensure deployment folders we need exist
+  become: yes
+  become_user: root
+  file: state=directory path="{{ item }}" owner="{{ non_priviliged_user }}" group="{{ non_priviliged_user }}" mode=0755
+  with_items:
+    - "{{ service_deploy_to }}"
+    - "{{ service_deploy_to }}/{{ service_name }}"
+    - "{{ service_deploy_to }}/shared"
+
+- name: "make sure /var/log/{{ service_name }} directory exists"
+  file: path="/var/log/{{ service_name }}" state=directory mode=0760 owner="{{non_priviliged_user}}" group="{{non_priviliged_user}}"
+  become: yes
+  become_user: root
+
+# deploy the code
+
+- include: "elixir.yml"

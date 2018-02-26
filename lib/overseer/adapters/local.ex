@@ -6,9 +6,15 @@ defmodule Overseer.Adapters.Local do
 
   alias Overseer.{Labor}
 
-  def validate(args) do
-    {:ok, args}
+  def validate(args) when is_map(args) do
+    case Map.get(args, :prefix) do
+      nil -> {:error, ":prefix must be provided for args of local adapter"}
+      s when is_binary(s) -> {:ok, args}
+      _ -> {:error, "value for the :prefix must be a string"}
+    end
   end
+
+  def validate(_args), do: {:error, "args must be a valid map"}
 
   def spawn(spec) do
     id = Overseer.Utils.gen_id(5)
@@ -42,7 +48,7 @@ defmodule Overseer.Adapters.Local do
 
     case Node.connect(name) do
       true -> true
-      false -> connect(name, n - 1)
+      _ -> connect(name, n - 1)
     end
   end
 

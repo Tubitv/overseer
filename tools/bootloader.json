@@ -1,0 +1,38 @@
+{
+  "variables": {
+    "aws_access_key": "{{env `AWS_ACCESS_KEY_ID`}}",
+    "aws_secret_key": "{{env `AWS_SECRET_ACCESS_KEY`}}",
+    "region":         "{{env `AWS_REGION`}}",
+    "owner":          "{{env `AWS_OWNER`}}",
+    "subnet":         "{{env `AWS_SUBNET`}}",
+    "vpc":         "{{env `AWS_VPC`}}"
+  },
+  "builders": [
+    {
+      "access_key": "{{user `aws_access_key`}}",
+      "ami_name": "overseer-bootloader-{{timestamp}}",
+      "instance_type": "c5.large",
+      "region": "{{user `region`}}",
+      "secret_key": "{{user `aws_secret_key`}}",
+      "vpc_id": "{{user `vpc` }}",
+      "subnet_id": "{{user `subnet`}}",
+      "source_ami_filter": {
+        "filters": {
+          "virtualization-type": "hvm",
+          "name": "ubuntu/images/*ubuntu-xenial-16.04-amd64-server-*",
+          "root-device-type": "ebs"
+        },
+        "owners": ["099720109477"],
+        "most_recent": true
+      },
+      "ssh_username": "ubuntu",
+      "type": "amazon-ebs"
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "ansible",
+      "playbook_file": "./ansible/main.yml"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description={{ service_name }} server
+After=network.target
+
+[Service]
+Type=forking
+EnvironmentFile={{ service_deploy_to }}/shared/{{ service_name }}.env
+WorkingDirectory={{ service_deploy_to }}/{{ service_name }}
+ExecStart={{ service_deploy_to }}/{{ service_name }}/bin/{{ service_name }} start
+ExecStop={{ service_deploy_to }}/{{ service_name }}/bin/{{ service_name }} stop
+ExecReload={{ service_deploy_to }}/{{ service_name }}/bin/{{ service_name }} reload_config
+User={{ non_priviliged_user }}
+SyslogIdentifier={{ service_name }}
+Restart=on-failure
+RemainAfterExit=no
+LimitNOFILE=102400
+
+[Install]
+WantedBy=multi-user.target

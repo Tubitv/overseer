@@ -1,0 +1,28 @@
+---
+- hosts: all
+  become: true
+  gather_facts: yes
+  roles:
+    - server
+    - elixir
+    - bootloader
+  gather_facts: no
+  post_tasks:
+    - name: restart server
+      shell: sleep 2 && shutdown -r now
+      async: 1
+      poll: 0
+      become: yes
+      become_method: sudo
+      ignore_errors: true
+
+    - name: waiting for server to come back after reboot
+      wait_for_connection:
+
+    - name: Show up time
+      shell: uptime
+      retries: 5
+      delay: 10
+      register: result
+      until: result.rc == 0
+      ignore_errors: true

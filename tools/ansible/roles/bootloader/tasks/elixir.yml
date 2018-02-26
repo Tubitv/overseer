@@ -1,0 +1,29 @@
+---
+- name: upload vm.args template
+  template: src=templates/vm.args.j2 dest={{ service_deploy_to }}/shared/vm.args owner={{ non_priviliged_user }} group={{ non_priviliged_user }} mode=0640
+
+- name: upload service env template
+  template: src=templates/{{ service_name }}.env.j2 dest={{ service_deploy_to }}/shared/{{ service_name }}.env owner={{ non_priviliged_user }} group={{ non_priviliged_user }} mode=0640
+
+- name: clear out lib and releases for target path for a clean build
+  file: state=absent path={{ item }}
+  with_items:
+    - "{{ service_deploy_to }}/{{ service_name }}/lib"
+    - "{{ service_deploy_to }}/{{ service_name }}/releases"
+
+- name: Upload and unarchive release
+  unarchive: src="bootloader.tar.gz" dest="{{ service_deploy_to }}/{{ service_name }}"
+  become: yes
+  become_user: root
+
+- name: configure the systemd service
+  template: src=systemd.service.j2 dest=/etc/systemd/system/{{ service_name }}.service owner={{ non_priviliged_user }} group={{ non_priviliged_user }}
+  become: yes
+  become_user: root
+
+- name: restart service
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    name: "{{ service_name }}"
+    enabled: yes

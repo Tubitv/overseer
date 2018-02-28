@@ -16,7 +16,8 @@ defmodule Overseer.Labor do
           status: status,
           conn_timer: reference,
           pair_timer: reference,
-          started_at: DateTime.t()
+          started_at: DateTime.t(),
+          state: any
         }
 
   defstruct name: :noname,
@@ -24,11 +25,13 @@ defmodule Overseer.Labor do
             status: :disconnected,
             conn_timer: nil,
             pair_timer: nil,
-            started_at: nil
+            started_at: nil,
+            state: %{}
 
-  def create(name) do
+  def create(name, init_state) do
     %Labor{
       name: name,
+      state: init_state,
       started_at: DateTime.utc_now()
     }
   end
@@ -46,6 +49,8 @@ defmodule Overseer.Labor do
         labor
     end
   end
+
+  def update_state(labor, state), do: %{labor | state: state}
 
   @all_status
   |> Enum.map(fn status ->

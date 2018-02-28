@@ -72,7 +72,7 @@ defmodule Overseer.Pair do
 
       labor ->
         new_labor = Labor.pair(labor, pid)
-        {:ok, Map.put(labors, name, Timer.cancel(new_labor, :conn))}
+        {:ok, Timer.cancel(new_labor, :conn)}
     end
   end
 end

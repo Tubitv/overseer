@@ -13,11 +13,11 @@ defmodule Overseer.Adapters.EC2 do
     {:ok, LaunchSpec.create(args)}
   end
 
-  def spawn(spec) do
+  def spawn(spec, init_state \\ nil) do
     name = "slave-node"
 
     case start_node(spec.args, name) do
-      {:ok, name} -> {:ok, Labor.create(name)}
+      {:ok, name} -> {:ok, Labor.create(name, init_state)}
       err -> err
     end
   end

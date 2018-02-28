@@ -15,7 +15,7 @@ defmodule MyOverseer do
   end
 
   def init(_) do
-    {:ok, %{}}
+    {:ok, %{}, %{}}
   end
 
   def handle_call(:state, _from, state), do: {:reply, state, state}

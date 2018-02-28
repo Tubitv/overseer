@@ -352,12 +352,24 @@ defmodule Overseer do
 
     node_name = node(pid)
 
-    with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_labor} <- Pair.initiate(spec, labor) do
-      {:noreply, %{data | labors: update_labors(labors, new_labor)}}
-    else
-      _err ->
-        Logger.warn("Cannot bring up the dead process for #{node_name}")
+    case Map.fetch(labors, node_name) do
+      {:ok, labor} ->
+        case Labor.is_terminated(labor) do
+          true ->
+            {:noreply, data}
+
+          _ ->
+            case Pair.initiate(spec, labor) do
+              {:ok, new_labor} ->
+                {:noreply, %{data | labors: update_labors(labors, new_labor)}}
+
+              _err ->
+                Logger.warn("Cannot bring up the dead process for #{node_name}")
+                {:noreply, data}
+            end
+        end
+
+      _ ->
         {:noreply, data}
     end
   end

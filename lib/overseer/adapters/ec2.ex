@@ -23,6 +23,8 @@ defmodule Overseer.Adapters.EC2 do
     end
   end
 
+  def terminate(%Labor{status: :terminated}, labor), do: {:ok, labor}
+
   def terminate(labor) do
     with {:ok, data} <- Map.fetch(labor, :adapter_data),
          {:ok, req_id} <- Map.fetch(data, :req_id),

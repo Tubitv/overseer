@@ -118,32 +118,39 @@ defmodule Overseer do
   @doc """
   Invoked when a remote node connected
   """
-  @callback handle_connected(from :: node, state :: term) :: {:noreply, term}
+  @callback handle_connected(from :: node, state :: term) :: {:ok, term} | {:error, term}
 
   @doc """
   Invoked when a remote node disconnected
   """
-  @callback handle_disconnected(from :: node, state :: term) :: {:noreply, term}
+  @callback handle_disconnected(from :: node, state :: term) :: {:ok, term} | {:error, term}
+
+  @doc """
+  Invoked when a remote node loaded the release
+  """
+  @callback handle_loaded(from :: node, state :: term) :: {:ok, term} | {:error, term}
+
+  @doc """
+  Invoked when a remote node paired with overseer
+  """
+  @callback handle_paired(from :: node, state :: term) :: {:ok, term} | {:error, term}
 
   @doc """
   Invoked when a remote node sends telemetry report
   """
-  @callback handle_telemetry(telemetry :: Telemetry, state :: term) :: {:noreply, term}
+  @callback handle_telemetry(telemetry :: Telemetry, state :: term) ::
+              {:ok, term} | {:error, term}
 
   @doc """
   Invoked when a remote node is terminated
   """
-  @callback handle_terminated(from :: node, state :: term) :: {:noreply, term}
-
-  @doc """
-  Invoked when a remote node sends other events
-  """
-  @callback handle_event(data :: term, from :: node, state :: term) :: {:noreply, term}
+  @callback handle_terminated(from :: node, state :: term) :: {:ok, term} | {:error, term}
 
   @optional_callbacks handle_connected: 2,
                       handle_disconnected: 2,
-                      handle_terminated: 2,
-                      handle_event: 3
+                      handle_loaded: 2,
+                      handle_paired: 2,
+                      handle_terminated: 2
 
   @doc false
   defmacro __using__(opts) do
@@ -178,12 +185,18 @@ defmodule Overseer do
 
   Example:
 
-      iex> adapter = {Overseer.Adapters.EC2, [
-        prefix: "merlin",
-        image: "ami-31bb8c7f",
-        type: "c5.xlarge",
-        spot?: true
-      ]}
+      iex> adapter = {EC2,
+            %{
+              region: "us-west-1",
+              zone: "us-west-1c",
+              key_name: "adRise AWS",
+              price: 0.15,
+              image: "ami-eb19128b",
+              instance_type: "c5.large",
+              iam_role: "arn:aws:iam::370025973162:instance-profile/uapi",
+              subnet: "subnet-81e344e4",
+              security_groups: ["sg-f2432e94", "sg-780be81c"],
+            }}
 
       iex> release = {:release, "a.tar.gz", {Module, :pair}}
 
@@ -240,9 +253,11 @@ defmodule Overseer do
     {:reply, count_labors(labors), data}
   end
 
-  def handle_call({:"$pair", name, pid}, _from, %{labors: labors} = data) do
-    case Pair.finish(labors, name, pid) do
-      {:ok, new_labors} -> {:reply, :ok, %{data | labors: new_labors}}
+  def handle_call({:"$pair", name, pid}, _from, %{mod: mod, state: state, labors: labors} = data) do
+    with {:ok, new_labors} <- Pair.finish(labors, name, pid),
+         {:ok, new_state} <- handle_mod_callback(mod, :paired, name, state) do
+      {:reply, :ok, %{data | labors: new_labors, state: new_state}}
+    else
       error -> {:reply, error, data}
     end
   end
@@ -273,7 +288,7 @@ defmodule Overseer do
 
   def handle_info({:nodeup, node_name, _}, %{mod: mod, labors: labors, state: state} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_state} <- mod.handle_connected(node_name, state) do
+         {:ok, new_state} <- handle_mod_callback(mod, :connected, node_name, state) do
       Logger.info("#{node_name} is up. Update its #{inspect(labor)} and cancelled the timer.")
 
       new_labor =
@@ -295,7 +310,7 @@ defmodule Overseer do
     %{mod: mod, labors: labors, spec: spec, state: state} = data
 
     with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_state} <- mod_handle_down(mod, labor, state) do
+         {:ok, new_state} <- handle_mod_down(mod, labor, state) do
       Logger.info("#{node_name} is down. Update its #{inspect(labor)}")
 
       new_labors =
@@ -366,17 +381,27 @@ defmodule Overseer do
     end
   end
 
-  def handle_info({:"$load_release", labor}, %{spec: spec, labors: labors} = data) do
+  def handle_info(
+        {:"$load_release", labor},
+        %{mod: mod, spec: spec, labors: labors, state: state} = data
+      ) do
     Logger.info("Loading the release for #{inspect(labor.name)}")
-    labor = Pair.load_and_pair(spec, labor)
-    {:noreply, %{data | labors: Map.put(labors, labor.name, labor)}}
+
+    with {:ok, labor} <- Pair.load_and_pair(spec, labor),
+         {:ok, new_state} <- handle_mod_callback(mod, :loaded, labor.name, state) do
+      {:noreply, %{data | labors: Map.put(labors, labor.name, labor), state: new_state}}
+    else
+      _ ->
+        Logger.warn("Failed to load the release with #{labor.name}")
+        {:noreply, data}
+    end
   end
 
   def handle_info({:"$telemetry", telemetry}, %{mod: mod, labors: labors, state: state} = data) do
     with {:ok, labor} <- Map.fetch(labors, telemetry.name) do
       Logger.info("Receiving telemetry data from #{telemetry.name}. Labor: #{inspect(labor)}")
 
-      case mod.handle_telemetry(telemetry, state) do
+      case handle_mod_callback(mod, :telemetry, telemetry, state) do
         {:ok, new_state} ->
           {:noreply, %{data | state: new_state}}
 
@@ -465,10 +490,10 @@ defmodule Overseer do
     end
   end
 
-  defp mod_handle_down(mod, labor, state) do
+  defp handle_mod_down(mod, labor, state) do
     case Labor.is_terminated(labor) do
-      true -> mod.handle_terminated(labor.name, state)
-      _ -> mod.handle_disconnected(labor.name, state)
+      true -> handle_mod_callback(mod, :terminated, labor.name, state)
+      _ -> handle_mod_callback(mod, :disconnected, labor.name, state)
     end
   end
 
@@ -486,4 +511,15 @@ defmodule Overseer do
     send(self(), {:"$load_release", labor})
     labor
   end
+
+  defp handle_mod_callback(mod, type, data, state) do
+    fn_name = :"handle_#{type}"
+
+    case defined?(mod, fn_name, 2) do
+      true -> apply(mod, fn_name, [data, state])
+      _ -> {:ok, state}
+    end
+  end
+
+  defp defined?(mod, fn_name, arity), do: :erlang.function_exported(mod, fn_name, arity)
 end

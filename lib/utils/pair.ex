@@ -20,7 +20,7 @@ defmodule Overseer.Pair do
     end
 
     {:ok, new_labor} = initiate(spec, labor)
-    Labor.loaded(new_labor)
+    {:ok, Labor.loaded(new_labor)}
   end
 
   @doc """

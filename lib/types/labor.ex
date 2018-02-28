@@ -74,7 +74,8 @@ defmodule Overseer.Labor do
       old_pid -> pair_old_new(labor, old_pid, pid)
     end
 
-    %{labor | pid: pid}
+    new_labor = Labor.paired(labor)
+    %{new_labor | pid: pid}
   end
 
   defp pair_old_new(labor, old_pid, pid) do

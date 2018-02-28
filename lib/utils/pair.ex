@@ -29,9 +29,11 @@ defmodule Overseer.Pair do
   Here I cannot send a message since I don't know who to send before paring is done.
   """
   def initiate(spec, labor) do
-    case initiate_pair(spec, labor.name) do
-      :error -> {:ok, Timer.setup(labor, spec.pair_timeout, :pair)}
-      _ -> {:ok, labor}
+    new_labor = Labor.loaded(labor)
+
+    case initiate_pair(spec, new_labor.name) do
+      :error -> {:ok, Timer.setup(new_labor, spec.pair_timeout, :pair)}
+      _ -> {:ok, new_labor}
     end
   end
 

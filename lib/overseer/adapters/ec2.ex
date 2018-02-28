@@ -29,7 +29,7 @@ defmodule Overseer.Adapters.EC2 do
          {:ok, instance_id} <- Map.fetch(data, :instance_id),
          :ok <- Spot.terminate_instance(instance_id),
          :ok <- Spot.cancel_request(req_id) do
-      {:ok, labor}
+      {:ok, Labor.terminated(labor)}
     else
       error ->
         Logger.error(

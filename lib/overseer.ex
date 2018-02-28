@@ -264,7 +264,7 @@ defmodule Overseer do
 
   def handle_call({:"$pair", name, pid}, _from, %{mod: mod, labors: labors} = data) do
     with {:ok, labor} <- Pair.finish(labors, name, pid),
-         {:ok, new_state} <- handle_mod_callback(mod, :paired, name, labor.state) do
+         {:ok, new_state} <- handle_mod_callback(mod, :paired, labor, labor.state) do
       {:reply, :ok, %{data | labors: update_labors(labors, labor, new_state)}}
     else
       error -> {:reply, error, data}
@@ -297,7 +297,7 @@ defmodule Overseer do
 
   def handle_info({:nodeup, node_name, _}, %{mod: mod, labors: labors} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_state} <- handle_mod_callback(mod, :connected, node_name, labor.state) do
+         {:ok, new_state} <- handle_mod_callback(mod, :connected, labor, labor.state) do
       Logger.info("#{node_name} is up. Update its #{inspect(labor)} and cancelled the timer.")
 
       new_labor =
@@ -392,7 +392,7 @@ defmodule Overseer do
     Logger.info("Loading the release for #{inspect(labor.name)}")
 
     with {:ok, labor} <- Pair.load_and_pair(spec, labor),
-         {:ok, new_state} <- handle_mod_callback(mod, :loaded, labor.name, labor.state) do
+         {:ok, new_state} <- handle_mod_callback(mod, :loaded, labor, labor.state) do
       {:noreply, %{data | labors: update_labors(labors, labor, new_state)}}
     else
       _ ->
@@ -496,8 +496,8 @@ defmodule Overseer do
 
   defp handle_mod_down(mod, labor) do
     case Labor.is_terminated(labor) do
-      true -> handle_mod_callback(mod, :terminated, labor.name, labor.state)
-      _ -> handle_mod_callback(mod, :disconnected, labor.name, labor.state)
+      true -> handle_mod_callback(mod, :terminated, labor, labor.state)
+      _ -> handle_mod_callback(mod, :disconnected, labor, labor.state)
     end
   end
 

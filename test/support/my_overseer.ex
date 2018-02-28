@@ -20,13 +20,13 @@ defmodule MyOverseer do
 
   def handle_call(:state, _from, state), do: {:reply, state, state}
 
-  def handle_connected(node, state) do
-    Logger.info("node #{node} up: state #{inspect(state)}")
+  def handle_connected(labor, state) do
+    Logger.info("node #{labor.name} up: labor #{inspect(labor)}, state #{inspect(state)}")
     {:ok, state}
   end
 
-  def handle_disconnected(node, state) do
-    Logger.info("node #{node} down: state #{inspect(state)}")
+  def handle_disconnected(labor, state) do
+    Logger.info("node #{labor.name} down: labor #{inspect(labor)}, state #{inspect(state)}")
     {:ok, state}
   end
 
@@ -35,11 +35,8 @@ defmodule MyOverseer do
     {:ok, state}
   end
 
-  def handle_terminated(_node, state) do
-    {:ok, state}
-  end
-
-  def handle_event(_event, _node, state) do
+  def handle_terminated(labor, state) do
+    Logger.info("node #{labor.name} terminated: labor #{inspect(labor)}, state #{inspect(state)}")
     {:ok, state}
   end
 end

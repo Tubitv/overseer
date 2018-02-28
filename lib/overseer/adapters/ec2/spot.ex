@@ -42,6 +42,52 @@ defmodule Overseer.Adapters.EC2.Spot do
     |> List.first()
   end
 
+  @spec cancel_request(String.t()) :: :ok | {:error, term}
+  def cancel_request(req_id) do
+    cmd = "aws ec2 cancel-spot-instance-requests --spot-instance-request-ids #{req_id}"
+
+    try do
+      state =
+        cmd
+        |> run_aws_cli
+        |> Map.get("CancelledSpotInstanceRequests")
+        |> List.first()
+        |> Map.get("State")
+
+      case state do
+        "cancelled" -> :ok
+        _ -> {:error, "Failed to cancel the request #{req_id}"}
+      end
+    rescue
+      error ->
+        {:error, error}
+    end
+  end
+
+  @spec terminate_instance(String.t()) :: :ok | {:error, term}
+  def terminate_instance(instance_id) do
+    cmd = "aws ec2 terminate-instances --instance-ids #{instance_id}"
+
+    try do
+      code =
+        cmd
+        |> run_aws_cli
+        |> Map.get("TerminatingInstances")
+        |> List.first()
+        |> Map.get("CurrentState")
+        |> Map.get("Code")
+
+      case code do
+        16 -> {:error, "Instance #{instance_id} is still running"}
+        _ -> :ok
+      end
+    rescue
+      error ->
+        {:error, error}
+    end
+  end
+
+  @spec get_instance_hostname(map, boolean) :: String.t()
   def get_instance_hostname(instance, priv? \\ true) do
     case priv? do
       true -> Map.get(instance, "PrivateDnsName")
@@ -49,6 +95,7 @@ defmodule Overseer.Adapters.EC2.Spot do
     end
   end
 
+  @spec get_instance_ip(map, boolean) :: String.t()
   def get_instance_ip(instance, priv? \\ true) do
     case priv? do
       true -> Map.get(instance, "PrivateIpAddress")

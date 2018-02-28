@@ -6,9 +6,9 @@ defmodule Overseer.Labor do
   alias Overseer.Labor
 
   # TODO: how can we unify the type def of states and the states here?
-  @all_status [:disconnected, :connected, :loaded, :terminated]
+  @all_status [:disconnected, :connected, :loaded, :paired, :terminated]
 
-  @type status :: :disconnected | :connected | :loaded | :terminated
+  @type status :: :disconnected | :connected | :loaded | :paired | :terminated
 
   @type t :: %__MODULE__{
           name: node,
@@ -17,6 +17,7 @@ defmodule Overseer.Labor do
           conn_timer: reference,
           pair_timer: reference,
           started_at: DateTime.t(),
+          adapter_data: any,
           state: any
         }
 
@@ -26,12 +27,14 @@ defmodule Overseer.Labor do
             conn_timer: nil,
             pair_timer: nil,
             started_at: nil,
-            state: %{}
+            adapter_data: nil,
+            state: nil
 
-  def create(name, init_state) do
+  def create(name, init_state, adapter_data) do
     %Labor{
       name: name,
       state: init_state,
+      adapter_data: adapter_data,
       started_at: DateTime.utc_now()
     }
   end

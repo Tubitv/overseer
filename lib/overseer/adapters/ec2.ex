@@ -5,6 +5,7 @@ defmodule Overseer.Adapters.EC2 do
   have time, I will try to support it with ExAws.
   """
   @behaviour Overseer.Adapter
+  require Logger
 
   alias Overseer.Adapters.EC2.{LaunchSpec, Spot}
   alias Overseer.{Labor}
@@ -17,13 +18,26 @@ defmodule Overseer.Adapters.EC2 do
     name = "slave-node"
 
     case start_node(spec.args, name) do
-      {:ok, name} -> {:ok, Labor.create(name, init_state)}
+      {:ok, name, adapter_data} -> {:ok, Labor.create(name, init_state, adapter_data)}
       err -> err
     end
   end
 
   def terminate(labor) do
-    {:ok, labor}
+    with {:ok, data} <- Map.fetch(labor, :adapter_data),
+         {:ok, req_id} <- Map.fetch(data, :req_id),
+         {:ok, instance_id} <- Map.fetch(data, :instance_id),
+         :ok <- Spot.terminate_instance(instance_id),
+         :ok <- Spot.cancel_request(req_id) do
+      {:ok, labor}
+    else
+      error ->
+        Logger.error(
+          "Cannot terminate or cancel spot instance request for %{inspect labor}, please try it manually"
+        )
+
+        {:error, error}
+    end
   end
 
   # private functions
@@ -37,7 +51,7 @@ defmodule Overseer.Adapters.EC2 do
       instance_id ->
         info = Spot.get_instance_info(instance_id)
         hostname = Spot.get_instance_hostname(info)
-        {:ok, :"#{name}@#{hostname}"}
+        {:ok, :"#{name}@#{hostname}", %{req_id: req_id, instance_id: instance_id}}
     end
   end
 end

@@ -23,7 +23,7 @@ defmodule Overseer.Adapters.Local do
 
     # since the node is brought up by us we just connect to it directly
     connect(name)
-    {:ok, Labor.create(name, init_state)}
+    {:ok, Labor.create(name, init_state, nil)}
   end
 
   def terminate(labor) do

@@ -20,7 +20,7 @@ defmodule Overseer.Pair do
     end
 
     {:ok, new_labor} = initiate(spec, labor)
-    Labor.loaded(new_labor)
+    {:ok, Labor.loaded(new_labor)}
   end
 
   @doc """
@@ -29,9 +29,11 @@ defmodule Overseer.Pair do
   Here I cannot send a message since I don't know who to send before paring is done.
   """
   def initiate(spec, labor) do
-    case initiate_pair(spec, labor.name) do
-      :error -> {:ok, Timer.setup(labor, spec.pair_timeout, :pair)}
-      _ -> {:ok, labor}
+    new_labor = Labor.loaded(labor)
+
+    case initiate_pair(spec, new_labor.name) do
+      :error -> {:ok, Timer.setup(new_labor, spec.pair_timeout, :pair)}
+      _ -> {:ok, new_labor}
     end
   end
 
@@ -72,7 +74,7 @@ defmodule Overseer.Pair do
 
       labor ->
         new_labor = Labor.pair(labor, pid)
-        {:ok, Map.put(labors, name, Timer.cancel(new_labor, :conn))}
+        {:ok, Timer.cancel(new_labor, :pair)}
     end
   end
 end

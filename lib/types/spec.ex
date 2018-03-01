@@ -7,6 +7,7 @@ defmodule Overseer.Spec do
   @max_nodes 8
   @conn_timeout 600 * 1000
   @pair_timeout 120 * 1000
+  @term_timeout 60 * 1000
 
   @type strategy :: :simple_one_for_one | :one_for_one
 
@@ -16,6 +17,7 @@ defmodule Overseer.Spec do
           max_nodes: integer,
           conn_timeout: integer,
           pair_timeout: integer,
+          term_timeout: integer,
           args: term,
           release: Release
         }
@@ -25,6 +27,7 @@ defmodule Overseer.Spec do
             max_nodes: @max_nodes,
             conn_timeout: @conn_timeout,
             pair_timeout: @pair_timeout,
+            term_timeout: @term_timeout,
             args: nil,
             release: nil
 
@@ -56,7 +59,8 @@ defmodule Overseer.Spec do
       strategy: strategy,
       max_nodes: Keyword.get(options, :max_nodes, @max_nodes),
       conn_timeout: Keyword.get(options, :conn_timeout, @conn_timeout),
-      pair_timeout: Keyword.get(options, :pair_timeout, @conn_timeout),
+      pair_timeout: Keyword.get(options, :pair_timeout, @pair_timeout),
+      term_timeout: Keyword.get(options, :term_timeout, @term_timeout),
       args: args,
       release: release
     }

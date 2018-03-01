@@ -6,29 +6,33 @@ defmodule Overseer.Labor do
   alias Overseer.Labor
 
   # TODO: how can we unify the type def of states and the states here?
-  @all_states [:disconnected, :connected, :loaded, :terminated]
+  @all_status [:disconnected, :connected, :loaded, :paired, :terminated]
 
-  @type state :: :disconnected | :connected | :loaded | :terminated
+  @type status :: :disconnected | :connected | :loaded | :paired | :terminated
 
   @type t :: %__MODULE__{
           name: node,
           pid: pid,
-          state: state,
-          conn_timer: reference,
-          pair_timer: reference,
-          started_at: DateTime.t()
+          status: status,
+          timers: %{required(atom) => reference},
+          started_at: DateTime.t(),
+          adapter_data: any,
+          state: any
         }
 
   defstruct name: :noname,
             pid: nil,
-            state: :disconnected,
-            conn_timer: nil,
-            pair_timer: nil,
-            started_at: nil
+            status: :disconnected,
+            timers: %{},
+            started_at: nil,
+            adapter_data: nil,
+            state: nil
 
-  def create(name) do
+  def create(name, init_state, adapter_data) do
     %Labor{
       name: name,
+      state: init_state,
+      adapter_data: adapter_data,
       started_at: DateTime.utc_now()
     }
   end
@@ -47,18 +51,20 @@ defmodule Overseer.Labor do
     end
   end
 
-  @all_states
-  |> Enum.map(fn state ->
-    def unquote(state)(labor), do: set_state(labor, unquote(state))
+  def update_state(labor, state), do: %{labor | state: state}
+
+  @all_status
+  |> Enum.map(fn status ->
+    def unquote(status)(labor), do: set_status(labor, unquote(status))
   end)
 
-  @all_states
-  |> Enum.map(fn state ->
-    def unquote(:"is_#{state}")(labor), do: is_state(labor, unquote(state))
+  @all_status
+  |> Enum.map(fn status ->
+    def unquote(:"is_#{status}")(labor), do: is_status(labor, unquote(status))
   end)
 
-  defp set_state(labor, new_state) when is_atom(new_state), do: %{labor | state: new_state}
-  defp is_state(labor, state) when is_atom(state), do: labor.state == state
+  defp set_status(labor, new_status) when is_atom(new_status), do: %{labor | status: new_status}
+  defp is_status(labor, status) when is_atom(status), do: labor.status == status
 
   defp pair_pid(labor, pid) do
     case labor.pid do
@@ -66,7 +72,8 @@ defmodule Overseer.Labor do
       old_pid -> pair_old_new(labor, old_pid, pid)
     end
 
-    %{labor | pid: pid}
+    new_labor = Labor.paired(labor)
+    %{new_labor | pid: pid}
   end
 
   defp pair_old_new(labor, old_pid, pid) do

@@ -16,7 +16,6 @@ defmodule Overseer.Adapters.EC2.LaunchSpec do
   @default_zone "us-east-1c"
   @default_price 0.01
   @default_pub_ip? false
-  @default_prefix "overseer_"
 
   @regions [
     "ap-south-1",
@@ -49,8 +48,7 @@ defmodule Overseer.Adapters.EC2.LaunchSpec do
           subnet: String.t(),
           security_groups: [String.t()],
           pub_ip?: boolean,
-          tags: map,
-          prefix: String.t()
+          tags: map
         }
 
   defstruct key_name: nil,
@@ -63,8 +61,7 @@ defmodule Overseer.Adapters.EC2.LaunchSpec do
             subnet: nil,
             security_groups: [],
             pub_ip?: @default_pub_ip?,
-            tags: [],
-            prefix: @default_prefix
+            tags: []
 
   use Vex.Struct
 
@@ -85,8 +82,7 @@ defmodule Overseer.Adapters.EC2.LaunchSpec do
       subnet: ensure_key(args, :subnet),
       security_groups: ensure_key(args, :security_groups),
       pub_ip?: ensure_key(args, :pub_ip?, @default_pub_ip?),
-      tags: [@default_tag | ensure_key(args, :tags, [])],
-      prefix: ensure_key(args, :prefix, @default_prefix)
+      tags: [@default_tag | ensure_key(args, :tags, [])]
     }
 
     unless LaunchSpec.valid?(result) do

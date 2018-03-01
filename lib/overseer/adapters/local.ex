@@ -16,14 +16,14 @@ defmodule Overseer.Adapters.Local do
 
   def validate(_args), do: {:error, "args must be a valid map"}
 
-  def spawn(spec) do
+  def spawn(spec, init_state \\ nil) do
     id = Overseer.Utils.gen_id(5)
     name = get_node_name(spec.args[:prefix], id, node())
     start_node(name)
 
     # since the node is brought up by us we just connect to it directly
     connect(name)
-    {:ok, Labor.create(name)}
+    {:ok, Labor.create(name, init_state, nil)}
   end
 
   def terminate(labor) do

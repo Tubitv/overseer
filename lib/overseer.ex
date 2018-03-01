@@ -30,7 +30,9 @@ defmodule Overseer do
   ## Supported events
 
   * connected: a node successfully connected to overseer.
-  * disconnected: if a node is DOWN, oversee will generate disconnected event. After a timeout that node didn't connect to overseer, overseer will bring up a new node with same ARA.
+  * disconnected: if a node is DOWN, overseer will generate disconnected event. After a timeout that node didn't connect to overseer, overseer will bring up a new node with same ARA.
+  * loaded: if a node finished loading the release, overseer will generate loaded event.
+  * paired: if a node finished pairing with overseer, overseer will generate paired event.
   * telemetry: telemetry data sent from node to overseer.
   * terminated: once overseer brings down a node, it will emit terminated event.
 
@@ -47,8 +49,11 @@ defmodule Overseer do
           Overseer.start_link(children, opts)
         end
 
+        # One shall provide initial labor_state and global_state
+        # later on only global_state are provided for handle_call / cast / info.
+        # labor_state will be provided for labor event: handle_connected / disconnected / telemetry / etc.
         def init(state) do
-          {:ok, state}
+          {:ok, labor_state, global_state}
         end
 
         def handle_connected(node, state) do
@@ -118,32 +123,39 @@ defmodule Overseer do
   @doc """
   Invoked when a remote node connected
   """
-  @callback handle_connected(from :: node, state :: term) :: {:noreply, term}
+  @callback handle_connected(from :: node, state :: term) :: {:ok, term} | {:error, term}
 
   @doc """
   Invoked when a remote node disconnected
   """
-  @callback handle_disconnected(from :: node, state :: term) :: {:noreply, term}
+  @callback handle_disconnected(from :: node, state :: term) :: {:ok, term} | {:error, term}
+
+  @doc """
+  Invoked when a remote node loaded the release
+  """
+  @callback handle_loaded(from :: node, state :: term) :: {:ok, term} | {:error, term}
+
+  @doc """
+  Invoked when a remote node paired with overseer
+  """
+  @callback handle_paired(from :: node, state :: term) :: {:ok, term} | {:error, term}
 
   @doc """
   Invoked when a remote node sends telemetry report
   """
-  @callback handle_telemetry(telemetry :: Telemetry, state :: term) :: {:noreply, term}
+  @callback handle_telemetry(telemetry :: Telemetry, state :: term) ::
+              {:ok, term} | {:error, term}
 
   @doc """
   Invoked when a remote node is terminated
   """
-  @callback handle_terminated(from :: node, state :: term) :: {:noreply, term}
-
-  @doc """
-  Invoked when a remote node sends other events
-  """
-  @callback handle_event(data :: term, from :: node, state :: term) :: {:noreply, term}
+  @callback handle_terminated(from :: node, state :: term) :: {:ok, term} | {:error, term}
 
   @optional_callbacks handle_connected: 2,
                       handle_disconnected: 2,
-                      handle_terminated: 2,
-                      handle_event: 3
+                      handle_loaded: 2,
+                      handle_paired: 2,
+                      handle_terminated: 2
 
   @doc false
   defmacro __using__(opts) do
@@ -168,6 +180,9 @@ defmodule Overseer do
       def terminate_child(name), do: Overseer.terminate_child(__MODULE__, name)
       def terminate_child(pid, name), do: Overseer.terminate_child(pid, name)
 
+      def terminate_all_children, do: Overseer.terminate_all_children(__MODULE__)
+      def terminate_all_children(pid), do: Overseer.terminate_all_children(pid)
+
       def count_children, do: Overseer.count_children(__MODULE__)
       def count_children(pid), do: Overseer.count_children(pid)
     end
@@ -178,12 +193,18 @@ defmodule Overseer do
 
   Example:
 
-      iex> adapter = {Overseer.Adapters.EC2, [
-        prefix: "merlin",
-        image: "ami-31bb8c7f",
-        type: "c5.xlarge",
-        spot?: true
-      ]}
+      iex> adapter = {EC2,
+            %{
+              region: "us-west-1",
+              zone: "us-west-1c",
+              key_name: "adRise AWS",
+              price: 0.15,
+              image: "ami-eb19128b",
+              instance_type: "c5.large",
+              iam_role: "arn:aws:iam::370025973162:instance-profile/uapi",
+              subnet: "subnet-81e344e4",
+              security_groups: ["sg-f2432e94", "sg-780be81c"],
+            }}
 
       iex> release = {:release, "a.tar.gz", {Module, :pair}}
 
@@ -203,23 +224,26 @@ defmodule Overseer do
 
   def start_child(pid), do: GenServer.call(pid, :"$start_child")
   def terminate_child(pid, node_name), do: GenServer.call(pid, {:"$terminate_child", node_name})
+  def terminate_all_children(pid), do: GenServer.call(pid, :"$terminate_all_children")
   def count_children(pid), do: GenServer.call(pid, :"$count_children")
 
   # callbacks
   def init({mod, data}) when is_atom(mod) do
-    with {:ok, state} <- mod.init(data),
-         {:ok, result} <- init_state(mod, data, state) do
+    with {:ok, labor_state, global_state} <- mod.init(data),
+         {:ok, result} <- init_state(mod, data, {labor_state, global_state}) do
       {:ok, result}
     else
       err -> err
     end
   end
 
-  def handle_call(:"$start_child", _from, %{spec: spec, labors: labors} = data) do
+  def handle_call(:"$start_child", _from, data) do
+    %{spec: spec, labors: labors, labor_state: labor_state} = data
+
     with true <- count_labors(labors) < spec.max_nodes,
-         {:ok, labor} <- spec.adapter.spawn(spec) do
+         {:ok, labor} <- spec.adapter.spawn(spec, labor_state) do
       labor = Timer.setup(labor, spec.conn_timeout, :conn)
-      {:reply, labor, %{data | labors: Map.put(labors, labor.name, labor)}}
+      {:reply, labor, %{data | labors: update_labors(labors, labor)}}
     else
       err ->
         Logger.info("Failed to create the child. Reason: #{inspect(err)}")
@@ -229,20 +253,36 @@ defmodule Overseer do
 
   def handle_call({:"$terminate_child", node_name}, _from, %{spec: spec, labors: labors} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_labor} <- spec.adapter.terminate(labor) do
-      {:reply, new_labor, %{data | labors: Map.put(labors, node_name, new_labor)}}
+         {:ok, new_labor} <- terminate_labor(spec, labor) do
+      {:reply, new_labor, %{data | labors: update_labors(labors, new_labor)}}
     else
       err -> {:reply, err, data}
     end
+  end
+
+  def handle_call(:"$terminate_all_children", _from, %{spec: spec, labors: labors} = data) do
+    result = Enum.map(labors, fn {_name, labor} -> terminate_labor(spec, labor) end)
+
+    new_labors =
+      Enum.reduce(result, labors, fn item, acc ->
+        case item do
+          {:ok, new_labor} -> update_labors(acc, new_labor)
+          _ -> acc
+        end
+      end)
+
+    {:reply, result, %{data | labors: new_labors}}
   end
 
   def handle_call(:"$count_children", _from, %{labors: labors} = data) do
     {:reply, count_labors(labors), data}
   end
 
-  def handle_call({:"$pair", name, pid}, _from, %{labors: labors} = data) do
-    case Pair.finish(labors, name, pid) do
-      {:ok, new_labors} -> {:reply, :ok, %{data | labors: new_labors}}
+  def handle_call({:"$pair", name, pid}, _from, %{mod: mod, labors: labors} = data) do
+    with {:ok, labor} <- Pair.finish(labors, name, pid),
+         {:ok, new_state} <- handle_mod_callback(mod, :paired, labor, labor.state) do
+      {:reply, :ok, %{data | labors: update_labors(labors, labor, new_state)}}
+    else
       error -> {:reply, error, data}
     end
   end
@@ -271,10 +311,10 @@ defmodule Overseer do
     noreply_callback(:handle_cast, [msg, state], data)
   end
 
-  def handle_info({:nodeup, node_name, _}, %{mod: mod, labors: labors, state: state} = data) do
+  def handle_info({:nodeup, node_name, _}, %{mod: mod, labors: labors} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_state} <- mod.handle_connected(node_name, state) do
-      Logger.info("#{node_name} is up. Update its #{inspect(labor)} and cancelled the timer.")
+         {:ok, new_state} <- handle_mod_callback(mod, :connected, labor, labor.state) do
+      Logger.info("#{node_name} is up. Update its status and cancel the timer.")
 
       new_labor =
         labor
@@ -282,8 +322,7 @@ defmodule Overseer do
         |> Labor.connected()
         |> trigger_loader
 
-      new_labors = Map.put(labors, node_name, new_labor)
-      {:noreply, %{data | labors: new_labors, state: new_state}}
+      {:noreply, %{data | labors: update_labors(labors, new_labor, new_state)}}
     else
       _err ->
         Logger.warn("#{node_name} is up. But it doesn't belong to any labors: #{inspect(labors)}")
@@ -291,12 +330,10 @@ defmodule Overseer do
     end
   end
 
-  def handle_info({:nodedown, node_name, _}, data) do
-    %{mod: mod, labors: labors, spec: spec, state: state} = data
-
+  def handle_info({:nodedown, node_name, _}, %{mod: mod, labors: labors, spec: spec} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_state} <- mod_handle_down(mod, labor, state) do
-      Logger.info("#{node_name} is down. Update its #{inspect(labor)}")
+         {:ok, new_state} <- handle_mod_down(mod, labor) do
+      Logger.info("#{node_name} is down. Update its status")
 
       new_labors =
         case Labor.is_terminated(labor) do
@@ -304,15 +341,11 @@ defmodule Overseer do
             delete_labor(labors, node_name)
 
           _ ->
-            new_labor =
-              labor
-              |> Timer.setup(spec.conn_timeout, :conn)
-              |> Labor.disconnected()
-
-            Map.put(labors, node_name, new_labor)
+            new_labor = Timer.setup(labor, spec.conn_timeout, :conn)
+            update_labors(labors, new_labor, new_state)
         end
 
-      {:noreply, %{data | labors: new_labors, state: new_state}}
+      {:noreply, %{data | labors: new_labors}}
     else
       _err ->
         Logger.warn(
@@ -324,18 +357,30 @@ defmodule Overseer do
   end
 
   def handle_info({:EXIT, pid, reason}, %{spec: spec, labors: labors} = data) do
-    Logger.warn(
-      "Process #{inspect(pid)} down. Reason: #{inspect(reason)}. Trying to bring it up again."
-    )
+    Logger.warn("Process #{inspect(pid)} down. Reason: #{inspect(reason)}.")
 
     node_name = node(pid)
 
-    with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_labor} <- Pair.initiate(spec, labor) do
-      {:noreply, %{data | labors: Map.put(labors, node_name, new_labor)}}
-    else
-      _err ->
-        Logger.warn("Cannot bring up the dead process for #{node_name}")
+    case Map.fetch(labors, node_name) do
+      {:ok, labor} ->
+        Logger.info("Found labor: #{inspect(labor)}")
+
+        case Labor.is_terminated(labor) do
+          true ->
+            {:noreply, data}
+
+          _ ->
+            case Pair.initiate(spec, labor) do
+              {:ok, new_labor} ->
+                {:noreply, %{data | labors: update_labors(labors, new_labor)}}
+
+              _err ->
+                Logger.warn("Cannot bring up the dead process for #{node_name}")
+                {:noreply, data}
+            end
+        end
+
+      _ ->
         {:noreply, data}
     end
   end
@@ -358,33 +403,55 @@ defmodule Overseer do
 
     with {:ok, labor} <- Map.fetch(labors, node_name),
          {:ok, new_labor} <- Pair.initiate(spec, labor) do
-      {:noreply, %{data | labors: Map.put(labors, node_name, new_labor)}}
+      {:noreply, %{data | labors: update_labors(labors, new_labor)}}
     else
       _ ->
-        Logger.warn("Failed to pair with #{node_name}.")
+        Logger.warn("Failed to pair with #{node_name}. It may not exist.")
         {:noreply, data}
     end
   end
 
-  def handle_info({:"$load_release", labor}, %{spec: spec, labors: labors} = data) do
-    Logger.info("Loading the release for #{inspect(labor.name)}")
-    labor = Pair.load_and_pair(spec, labor)
-    {:noreply, %{data | labors: Map.put(labors, labor.name, labor)}}
+  def handle_info({:"$term_timeout", node_name}, %{labors: labors} = data) do
+    Logger.info("Terminate timer triggered: #{inspect(node_name)}")
+
+    with {:ok, labor} <- Map.fetch(labors, node_name) do
+      case Labor.is_disconnected(labor) or Labor.is_terminated(labor) do
+        true -> {:noreply, %{data | labors: delete_labor(labors, node_name)}}
+        _ -> {:noreply, data}
+      end
+    else
+      _ ->
+        Logger.warn("Failed to terminate with #{node_name}. It may not exist.")
+        {:noreply, data}
+    end
   end
 
-  def handle_info({:"$telemetry", telemetry}, %{mod: mod, labors: labors, state: state} = data) do
+  def handle_info({:"$load_release", labor}, %{mod: mod, spec: spec, labors: labors} = data) do
+    Logger.info("Loading the release for #{inspect(labor.name)}")
+
+    with {:ok, labor} <- Pair.load_and_pair(spec, labor),
+         {:ok, new_state} <- handle_mod_callback(mod, :loaded, labor, labor.state) do
+      {:noreply, %{data | labors: update_labors(labors, labor, new_state)}}
+    else
+      _ ->
+        Logger.warn("Failed to load the release with #{labor.name}")
+        new_labor = Timer.setup(labor, spec.conn_timeout, :conn)
+        {:noreply, %{data | labors: update_labors(labors, new_labor)}}
+    end
+  end
+
+  def handle_info({:"$telemetry", telemetry}, %{mod: mod, labors: labors} = data) do
     with {:ok, labor} <- Map.fetch(labors, telemetry.name) do
       Logger.info("Receiving telemetry data from #{telemetry.name}. Labor: #{inspect(labor)}")
 
-      case mod.handle_telemetry(telemetry, state) do
+      case handle_mod_callback(mod, :telemetry, telemetry, labor.state) do
         {:ok, new_state} ->
-          {:noreply, %{data | state: new_state}}
+          {:noreply, %{data | labors: update_labors(labors, labor, new_state)}}
 
         {:error, error} ->
           Logger.info(
-            "Failed to process: #{inspect(telemetry)}. Labor: #{inspect(labor)}. Error: #{
-              inspect(error)
-            }"
+            "Failed to process telemetry: #{inspect(telemetry)}. Labor: #{inspect(labor)}.
+              Error: #{inspect(error)}"
           )
 
           {:noreply, data}
@@ -465,10 +532,10 @@ defmodule Overseer do
     end
   end
 
-  defp mod_handle_down(mod, labor, state) do
+  defp handle_mod_down(mod, labor) do
     case Labor.is_terminated(labor) do
-      true -> mod.handle_terminated(labor.name, state)
-      _ -> mod.handle_disconnected(labor.name, state)
+      true -> handle_mod_callback(mod, :terminated, labor, labor.state)
+      _ -> handle_mod_callback(mod, :disconnected, labor, labor.state)
     end
   end
 
@@ -479,11 +546,43 @@ defmodule Overseer do
   end
 
   defp delete_labor(labors, name) do
-    Map.delete(labors, name)
+    case Map.fetch(labors, name) do
+      {:ok, labor} ->
+        Timer.cancel_all(labor)
+        Map.delete(labors, name)
+
+      _ ->
+        labors
+    end
   end
 
   defp trigger_loader(labor) do
     send(self(), {:"$load_release", labor})
     labor
+  end
+
+  defp handle_mod_callback(mod, type, data, state) do
+    fn_name = :"handle_#{type}"
+
+    case function_exported?(mod, fn_name, 2) do
+      true -> apply(mod, fn_name, [data, state])
+      _ -> {:ok, state}
+    end
+  end
+
+  defp update_labors(labors, labor), do: Map.put(labors, labor.name, labor)
+
+  defp update_labors(labors, labor, state) do
+    new_labor = Labor.update_state(labor, state)
+    update_labors(labors, new_labor)
+  end
+
+  defp terminate_labor(spec, labor) do
+    with {:ok, new_labor} <- spec.adapter.terminate(labor),
+         new_labor <- Timer.setup(new_labor, spec.term_timeout, :term) do
+      {:ok, new_labor}
+    else
+      err -> err
+    end
   end
 end

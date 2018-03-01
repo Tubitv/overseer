@@ -17,8 +17,8 @@ defmodule Overseer.MixProject do
       # exdocs
       # Docs
       name: "Overseer",
-      source_url: "https://github.com/tyrchen/overseer",
-      homepage_url: "https://github.com/tyrchen/overseer",
+      source_url: "https://github.com/tubitv/overseer",
+      homepage_url: "https://github.com/tubitv/overseer",
       docs: [
         main: "Overseer",
         extras: ["README.md"]
@@ -62,7 +62,7 @@ defmodule Overseer.MixProject do
       licenses: ["MIT"],
       maintainers: ["tyr.chen@gmail.com"],
       links: %{
-        "GitHub" => "https://github.com/tyrchen/overseer",
+        "GitHub" => "https://github.com/tubitv/overseer",
         "Docs" => "https://hexdocs.pm/overseer"
       }
     ]

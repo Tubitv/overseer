@@ -7,6 +7,8 @@ Overseer is a OTP behavior that mimics the behavior of Supervisor, however inste
 * receive and process the telemetry
 * manage the node state machine (up / down)
 
+__Warning: this software is in very early stage. It's unstable and will be changed drastically in near future. Feel free to play with it but please do not use it in production. Issues / Suggestions are welcome!__
+
 ## Concepts
 
 * slave node: node that created by the overseer for computation purpose.
@@ -100,12 +102,19 @@ Once ``start_child`` is executed, a bunch of work happened underlying (take EC2 
 
 1. Overseer calls ``Adapter.spawn()``.
 2. EC2 adapter will then request a spot instance with designated AMI, which contains a very simple bootloader.
-3.
+3. The cookie and the node name of Overseer are written into user data when the instance is brought up.
+4. Once instance is up, systemd will start bootloader, and bootloader will load the cookie / node name from user data of the instance, and then connect with the node of Overseer.
+5. Overseer got notified for the ``node_up`` event, it will then load the release into newly brought up slave node. For more information about how to load a module / release to remote node, see [ex_loader](https://github.com/tubitv/ex_loader). Then a pair handshake is started between Overseer and slave node.
+6. Slave node will then get a pair message with Overseer's pid, it will send pair message back to the pid with its own pid.
+7. Overseer will then be in a paired state for that slave node.
+8. Depending on what logic is contained in the release, slave node will start its job and send telemetry back to Overseer.
+9. Once everything is finished, slave node can notify Overseer so that Overseer can decide if it shall terminate the slave node.
 
 ![](docs/overseer.jpg)
 
-### Build your
+### Build your own bootloader
 
+See [README.md in tools directory](tools/README.md)
 
 
 ## Installation

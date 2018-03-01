@@ -14,8 +14,7 @@ defmodule Overseer.Labor do
           name: node,
           pid: pid,
           status: status,
-          conn_timer: reference,
-          pair_timer: reference,
+          timers: %{required(atom) => reference},
           started_at: DateTime.t(),
           adapter_data: any,
           state: any
@@ -24,8 +23,7 @@ defmodule Overseer.Labor do
   defstruct name: :noname,
             pid: nil,
             status: :disconnected,
-            conn_timer: nil,
-            pair_timer: nil,
+            timers: %{},
             started_at: nil,
             adapter_data: nil,
             state: nil

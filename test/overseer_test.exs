@@ -126,6 +126,20 @@ defmodule OverseerTest do
     Process.exit(pid, :kill)
   end
 
+  test "terminate all shall kill all children" do
+    timeout = 1000
+    data = {@local_adapter, @release, @opts}
+    assert {:ok, pid} = MyOverseer.start_link(data, name: MyOverseer)
+
+    Enum.each(1..5, fn _ -> MyOverseer.start_child() end)
+
+    :timer.sleep(timeout)
+    MyOverseer.terminate_all_children()
+    assert 0 == MyOverseer.count_children()
+    Process.exit(pid, :kill)
+  end
+
+  # private functions
   defp wait_termination(_data, 0), do: MyOverseer.debug()
 
   defp wait_termination(old_data, n) do

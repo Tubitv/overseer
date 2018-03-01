@@ -180,6 +180,9 @@ defmodule Overseer do
       def terminate_child(name), do: Overseer.terminate_child(__MODULE__, name)
       def terminate_child(pid, name), do: Overseer.terminate_child(pid, name)
 
+      def terminate_all_children, do: Overseer.terminate_all_children(__MODULE__)
+      def terminate_all_children(pid), do: Overseer.terminate_all_children(pid)
+
       def count_children, do: Overseer.count_children(__MODULE__)
       def count_children(pid), do: Overseer.count_children(pid)
     end
@@ -221,6 +224,7 @@ defmodule Overseer do
 
   def start_child(pid), do: GenServer.call(pid, :"$start_child")
   def terminate_child(pid, node_name), do: GenServer.call(pid, {:"$terminate_child", node_name})
+  def terminate_all_children(pid), do: GenServer.call(pid, :"$terminate_all_children")
   def count_children(pid), do: GenServer.call(pid, :"$count_children")
 
   # callbacks
@@ -233,11 +237,9 @@ defmodule Overseer do
     end
   end
 
-  def handle_call(
-        :"$start_child",
-        _from,
-        %{spec: spec, labors: labors, labor_state: labor_state} = data
-      ) do
+  def handle_call(:"$start_child", _from, data) do
+    %{spec: spec, labors: labors, labor_state: labor_state} = data
+
     with true <- count_labors(labors) < spec.max_nodes,
          {:ok, labor} <- spec.adapter.spawn(spec, labor_state) do
       labor = Timer.setup(labor, spec.conn_timeout, :conn)
@@ -256,6 +258,20 @@ defmodule Overseer do
     else
       err -> {:reply, err, data}
     end
+  end
+
+  def handle_call(:"$terminate_all_children", _from, %{spec: spec, labors: labors} = data) do
+    result = Enum.map(labors, fn {_name, labor} -> spec.adapter.terminate(labor) end)
+
+    new_labors =
+      Enum.reduce(result, labors, fn item, acc ->
+        case item do
+          {:ok, new_labor} -> update_labors(acc, new_labor)
+          _ -> acc
+        end
+      end)
+
+    {:reply, result, %{data | labors: new_labors}}
   end
 
   def handle_call(:"$count_children", _from, %{labors: labors} = data) do
@@ -325,12 +341,7 @@ defmodule Overseer do
             delete_labor(labors, node_name)
 
           _ ->
-            new_labor =
-              labor
-              |> Timer.setup(spec.conn_timeout, :conn)
-              |> Labor.disconnected()
-
-            Map.put(labors, node_name, new_labor)
+            new_labor = Timer.setup(labor, spec.conn_timeout, :conn)
             update_labors(labors, new_labor, new_state)
         end
 
@@ -409,7 +420,8 @@ defmodule Overseer do
     else
       _ ->
         Logger.warn("Failed to load the release with #{labor.name}")
-        {:noreply, data}
+        new_labor = Timer.setup(labor, spec.conn_timeout, :conn)
+        {:noreply, %{data | labors: update_labors(labors, new_labor)}}
     end
   end
 
@@ -423,9 +435,8 @@ defmodule Overseer do
 
         {:error, error} ->
           Logger.info(
-            "Failed to process: #{inspect(telemetry)}. Labor: #{inspect(labor)}. Error: #{
-              inspect(error)
-            }"
+            "Failed to process telemetry: #{inspect(telemetry)}. Labor: #{inspect(labor)}.
+              Error: #{inspect(error)}"
           )
 
           {:noreply, data}
@@ -520,7 +531,14 @@ defmodule Overseer do
   end
 
   defp delete_labor(labors, name) do
-    Map.delete(labors, name)
+    case Map.fetch(labors, name) do
+      {:ok, labor} ->
+        Timer.cancel_all(labor)
+        Map.delete(labors, name)
+
+      _ ->
+        labors
+    end
   end
 
   defp trigger_loader(labor) do

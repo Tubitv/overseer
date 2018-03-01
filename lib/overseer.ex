@@ -253,7 +253,7 @@ defmodule Overseer do
 
   def handle_call({:"$terminate_child", node_name}, _from, %{spec: spec, labors: labors} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
-         {:ok, new_labor} <- spec.adapter.terminate(labor) do
+         {:ok, new_labor} <- terminate_labor(spec, labor) do
       {:reply, new_labor, %{data | labors: update_labors(labors, new_labor)}}
     else
       err -> {:reply, err, data}
@@ -261,7 +261,7 @@ defmodule Overseer do
   end
 
   def handle_call(:"$terminate_all_children", _from, %{spec: spec, labors: labors} = data) do
-    result = Enum.map(labors, fn {_name, labor} -> spec.adapter.terminate(labor) end)
+    result = Enum.map(labors, fn {_name, labor} -> terminate_labor(spec, labor) end)
 
     new_labors =
       Enum.reduce(result, labors, fn item, acc ->
@@ -314,7 +314,7 @@ defmodule Overseer do
   def handle_info({:nodeup, node_name, _}, %{mod: mod, labors: labors} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
          {:ok, new_state} <- handle_mod_callback(mod, :connected, labor, labor.state) do
-      Logger.info("#{node_name} is up. Update its #{inspect(labor)} and cancelled the timer.")
+      Logger.info("#{node_name} is up. Update its status and cancel the timer.")
 
       new_labor =
         labor
@@ -333,7 +333,7 @@ defmodule Overseer do
   def handle_info({:nodedown, node_name, _}, %{mod: mod, labors: labors, spec: spec} = data) do
     with {:ok, labor} <- Map.fetch(labors, node_name),
          {:ok, new_state} <- handle_mod_down(mod, labor) do
-      Logger.info("#{node_name} is down. Update its #{inspect(labor)}")
+      Logger.info("#{node_name} is down. Update its status")
 
       new_labors =
         case Labor.is_terminated(labor) do
@@ -357,14 +357,14 @@ defmodule Overseer do
   end
 
   def handle_info({:EXIT, pid, reason}, %{spec: spec, labors: labors} = data) do
-    Logger.warn(
-      "Process #{inspect(pid)} down. Reason: #{inspect(reason)}. Trying to bring it up again."
-    )
+    Logger.warn("Process #{inspect(pid)} down. Reason: #{inspect(reason)}.")
 
     node_name = node(pid)
 
     case Map.fetch(labors, node_name) do
       {:ok, labor} ->
+        Logger.info("Found labor: #{inspect(labor)}")
+
         case Labor.is_terminated(labor) do
           true ->
             {:noreply, data}
@@ -406,7 +406,22 @@ defmodule Overseer do
       {:noreply, %{data | labors: update_labors(labors, new_labor)}}
     else
       _ ->
-        Logger.warn("Failed to pair with #{node_name}.")
+        Logger.warn("Failed to pair with #{node_name}. It may not exist.")
+        {:noreply, data}
+    end
+  end
+
+  def handle_info({:"$term_timeout", node_name}, %{labors: labors} = data) do
+    Logger.info("Terminate timer triggered: #{inspect(node_name)}")
+
+    with {:ok, labor} <- Map.fetch(labors, node_name) do
+      case Labor.is_disconnected(labor) or Labor.is_terminated(labor) do
+        true -> {:noreply, %{data | labors: delete_labor(labors, node_name)}}
+        _ -> {:noreply, data}
+      end
+    else
+      _ ->
+        Logger.warn("Failed to terminate with #{node_name}. It may not exist.")
         {:noreply, data}
     end
   end
@@ -560,5 +575,14 @@ defmodule Overseer do
   defp update_labors(labors, labor, state) do
     new_labor = Labor.update_state(labor, state)
     update_labors(labors, new_labor)
+  end
+
+  defp terminate_labor(spec, labor) do
+    with {:ok, new_labor} <- spec.adapter.terminate(labor),
+         new_labor <- Timer.setup(new_labor, spec.term_timeout, :term) do
+      {:ok, new_labor}
+    else
+      err -> err
+    end
   end
 end

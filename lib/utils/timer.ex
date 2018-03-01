@@ -13,7 +13,11 @@ defmodule Overseer.Timer do
     timers = Map.put(labor.timers, type, ref)
     new_labor = Map.put(labor, :timers, timers)
 
-    Labor.disconnected(new_labor)
+    case type do
+      :conn -> Labor.disconnected(new_labor)
+      :pair -> Labor.loaded(new_labor)
+      :term -> Labor.terminated(new_labor)
+    end
   end
 
   def cancel(labor, type) do
